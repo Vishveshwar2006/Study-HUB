@@ -1,0 +1,514 @@
+{
+  "entities": {
+    "School": {
+      "title": "School",
+      "description": "An affiliated high school branch academy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "address": { "type": "string" },
+        "principalName": { "type": "string" },
+        "principalEmail": { "type": "string" },
+        "principalPassword": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "registeredAt": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "address", "principalName", "principalEmail", "status", "registeredAt"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "An instructional faculty profiles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "specialization": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "On Leave"] },
+        "password": { "type": "string" },
+        "schoolId": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "specialization", "status"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "An enrolled student academic registry profiling",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "rollNo": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "password": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "assignedComputerDeskCode": { "type": "string" },
+        "verifiedAt": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "batchId": { "type": "string" },
+        "isSelfRegistered": { "type": "boolean" },
+        "isGoogleRegistered": { "type": "boolean" },
+        "googleEmail": { "type": "string" },
+        "registeredAt": { "type": "string" },
+        "dob": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "apparId": { "type": "string" },
+        "penNumber": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "motherName": { "type": "string" },
+        "scholarNumber": { "type": "string" },
+        "ssmId": { "type": "string" },
+        "schoolId": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "rollNo", "status"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "An instructional program class program",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "schedule": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "studentIds": { "type": "array" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "name", "subject", "schedule", "code"]
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "Dynamic syllabus items, attendance registry lists, and study markdown logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "batchId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Draft", "Published", "Completed"] },
+        "attendance": { "type": "object" }
+      },
+      "required": ["id", "batchId", "title", "content", "date", "status"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "Exam blueprints, scores, question metrics, live unlock codes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "batchId": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "maxMarks": { "type": "number" },
+        "scores": { "type": "object" },
+        "questions": { "type": "array" },
+        "isLive": { "type": "boolean" },
+        "isAdminApproved": { "type": "boolean" },
+        "examKey": { "type": "string" },
+        "requireLabAllotment": { "type": "boolean" },
+        "isResultsPublished": { "type": "boolean" }
+      },
+      "required": ["id", "batchId", "title", "date", "maxMarks"]
+    },
+    "TestSubmission": {
+      "title": "TestSubmission",
+      "description": "Academic answer sheets and feedback records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "testId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "answers": { "type": "object" },
+        "submittedAt": { "type": "string" },
+        "score": { "type": "number" },
+        "isGraded": { "type": "boolean" },
+        "isPublished": { "type": "boolean" },
+        "feedback": { "type": "string" }
+      },
+      "required": ["id", "testId", "studentId", "submittedAt"]
+    },
+    "ComputerDesk": {
+      "title": "ComputerDesk",
+      "description": "Terminal laboratory workspace monitoring",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uniqueCode": { "type": "string" },
+        "ipAddress": { "type": "string" },
+        "status": { "type": "string", "enum": ["Available", "Occupied", "Maintenance"] },
+        "currentStudentId": { "type": "string" },
+        "roomNumber": { "type": "string" },
+        "facultyName": { "type": "string" }
+      },
+      "required": ["id", "uniqueCode", "ipAddress", "status", "roomNumber"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Campus notice board publications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "batchId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["Admin", "Teacher"] },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "isPublished": { "type": "boolean" }
+      },
+      "required": ["id", "batchId", "senderName", "senderRole", "title", "content", "date"]
+    },
+    "FeeInvoice": {
+      "title": "FeeInvoice",
+      "description": "Financial balances and collection tracking records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentRollNo": { "type": "string" },
+        "studentName": { "type": "string" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["Paid", "Unpaid"] },
+        "paidDate": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "studentId", "studentRollNo", "studentName", "amount", "dueDate", "title", "status"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Secure direct line student helpline conversations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["student", "teacher", "admin", "feemanager", "admission"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "studentId": { "type": "string" }
+      },
+      "required": ["id", "senderId", "senderName", "senderRole", "content", "timestamp", "studentId"]
+    },
+    "FeeManager": {
+      "title": "FeeManager",
+      "description": "Financial ledger cashiers accounts profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "status"]
+    },
+    "AdmissionOfficer": {
+      "title": "AdmissionOfficer",
+      "description": "Admission intake operator profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "status"]
+    },
+    "ContactLead": {
+      "title": "ContactLead",
+      "description": "Prospective inquiries, lead tracking, conversion follow-ups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "courseInterest": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["New", "Contacted", "In Progress", "Enrolled", "Closed"] },
+        "date": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "phone", "courseInterest", "status", "date"]
+    },
+    "SecuritySOSAlert": {
+      "title": "SecuritySOSAlert",
+      "description": "Dual authorization SOS alarms and system panic triggers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["Student", "Teacher", "Admission", "FeeManager", "Admin"] },
+        "senderId": { "type": "string" },
+        "severity": { "type": "string", "enum": ["High", "Critical", "Standard"] },
+        "type": { "type": "string", "enum": ["SOS", "Security Issue", "Medical Emergency", "Fraud Warning", "Panic Alarm", "System Bypass"] },
+        "location": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "resolved": { "type": "boolean" },
+        "resolvedBy": { "type": "string" },
+        "comments": { "type": "string" }
+      },
+      "required": ["id", "senderName", "senderRole", "senderId", "severity", "type", "location", "details", "timestamp", "resolved"]
+    },
+    "OnlineAnnouncement": {
+      "title": "OnlineAnnouncement",
+      "description": "Public portal announcements published by admin only",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "isPublished": { "type": "boolean" }
+      },
+      "required": ["id", "title", "content", "date"]
+    },
+    "CounsellingRequest": {
+      "title": "CounsellingRequest",
+      "description": "Requests for academic or personal counselling, complete with temporary portal credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentRollNo": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "topic": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Active", "Closed"] },
+        "tempUsername": { "type": "string" },
+        "tempPassword": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "closedAt": { "type": "string" },
+        "scheduledAt": { "type": "string" },
+        "meetingLink": { "type": "string" },
+        "notes": { "type": "string" },
+        "closedBy": { "type": "string" }
+      },
+      "required": ["id", "studentName", "email", "topic", "description", "status", "tempUsername", "tempPassword", "createdAt", "scheduledAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "An administrative staff or primary supervisor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "employeeCode": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "name", "status"]
+    },
+    "CounsellingSlot": {
+      "title": "CounsellingSlot",
+      "description": "Available timeslot for counselling sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "datetime": { "type": "string" },
+        "isBooked": { "type": "boolean" },
+        "bookedByRequestId": { "type": "string" }
+      },
+      "required": ["id", "datetime", "isBooked"]
+    },
+    "AdmissionRequest": {
+      "title": "AdmissionRequest",
+      "description": "Enrollment candidate review dossier submitted by a teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentName": { "type": "string" },
+        "email": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "dob": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "motherName": { "type": "string" },
+        "batchId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "createdAt": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "rollNo": { "type": "string" },
+        "enrollmentNo": { "type": "string" }
+      },
+      "required": ["id", "studentName", "email", "mobileNumber", "dob", "fatherName", "motherName", "batchId", "teacherId", "teacherName", "status", "createdAt"]
+    },
+    "PublicBatch": {
+      "title": "PublicBatch",
+      "description": "Published program classes available for guest viewers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "department": { "type": "string" },
+        "description": { "type": "string" },
+        "duration": { "type": "string" },
+        "isPublished": { "type": "boolean" }
+      },
+      "required": ["id", "name", "department", "description", "duration", "isPublished"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "A notification dispatch for administrative notices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "readBy": { "type": "array" },
+        "attachmentName": { "type": "string" },
+        "attachmentType": { "type": "string" },
+        "attachmentUrl": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "senderName", "senderRole", "timestamp"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "A student's daily attendance checklist entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Present", "Absent"] },
+        "batchId": { "type": "string" }
+      },
+      "required": ["id", "studentId", "date", "status", "batchId"]
+    },
+    "AuthorizedDevice": {
+      "title": "AuthorizedDevice",
+      "description": "An administrative device approved for central access",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "deviceKey": { "type": "string" },
+        "authorizedAt": { "type": "string" },
+        "lastUsedAt": { "type": "string" },
+        "userAgent": { "type": "string" }
+      },
+      "required": ["id", "deviceName", "deviceKey", "authorizedAt"]
+    }
+  },
+  "firestore": {
+    "schools": {
+      "schema": "School",
+      "description": "Affiliated high school branch list"
+    },
+    "teachers": {
+      "schema": "Teacher",
+      "description": "Instructional faculty member profile"
+    },
+    "students": {
+      "schema": "Student",
+      "description": "Enrolled dynamic student scholars list"
+    },
+    "batches": {
+      "schema": "Batch",
+      "description": "Instructional course batches"
+    },
+    "lessons": {
+      "schema": "Lesson",
+      "description": "Syllabus, lectures, and session attendance tracking"
+    },
+    "tests": {
+      "schema": "Test",
+      "description": "Exams, scoring limits, keys, and live approval states"
+    },
+    "testSubmissions": {
+      "schema": "TestSubmission",
+      "description": "Student exam sheets and direct grading responses"
+    },
+    "computerDesks": {
+      "schema": "ComputerDesk",
+      "description": "Workspace computer terminals and health states"
+    },
+    "announcements": {
+      "schema": "Announcement",
+      "description": "Central and classroom level announcements log"
+    },
+    "feeInvoices": {
+      "schema": "FeeInvoice",
+      "description": "Tuition bills, financial records, due dates"
+    },
+    "supportMessages": {
+      "schema": "SupportMessage",
+      "description": "Technical support / academic helpline chat messages"
+    },
+    "feeManagers": {
+      "schema": "FeeManager",
+      "description": "Authorized accounts clerks and cashiers"
+    },
+    "admissionOfficers": {
+      "schema": "AdmissionOfficer",
+      "description": "Authorized campus enrollment officers"
+    },
+    "contactLeads": {
+      "schema": "ContactLead",
+      "description": "Inward student prospects and follow-up notes"
+    },
+    "securitySOSAlerts": {
+      "schema": "SecuritySOSAlert",
+      "description": "High-priority alarms and proctoring violations"
+    },
+    "onlineAnnouncements": {
+      "schema": "OnlineAnnouncement",
+      "description": "Public website and student guest portal announcements"
+    },
+    "counsellingRequests": {
+      "schema": "CounsellingRequest",
+      "description": "Requests for academic and career counselling, including temporary credentials"
+    },
+    "admins": {
+      "schema": "AdminUser",
+      "description": "Administrative staff members profiles"
+    },
+    "counsellingSlots": {
+      "schema": "CounsellingSlot",
+      "description": "Academic and personal counselling slot bookings"
+    },
+    "admissionRequests": {
+      "schema": "AdmissionRequest",
+      "description": "Admissions candidate review and credentials allocation queue"
+    },
+    "publicBatches": {
+      "schema": "PublicBatch",
+      "description": "Active batches visible on the public portal"
+    },
+    "appNotifications": {
+      "schema": "AppNotification",
+      "description": "Global or group level push notification messages log"
+    },
+    "attendanceRecords": {
+      "schema": "AttendanceRecord",
+      "description": "Detailed student batch class-by-class attendance history"
+    },
+    "authorizedDevices": {
+      "schema": "AuthorizedDevice",
+      "description": "Secure access-allowed device fingerprint profiles"
+    }
+  }
+}

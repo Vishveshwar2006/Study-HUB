@@ -1,0 +1,6 @@
+{
+  "name": "MP DIGI",
+  "description": "An advanced Learning Management System (LMS) for MP Digital, featuring live academic schedules, admissions pipelines, teacher dashboards, financial control desks, and a real-time emergency campus SOS control room.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

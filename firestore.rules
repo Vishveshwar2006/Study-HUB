@@ -1,0 +1,414 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global safety net (Default Deny matching)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY DEFINITIONS & TRANSFORMATION HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(ownerId) {
+      return isSignedIn() && request.auth.uid == ownerId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- ENTITY SCHEMA COMPLIANCE CHECKS (ANTI-UPDATE-GAP) ---
+    function isValidSchool(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 250
+          && data.code is string && data.code.size() <= 128
+          && data.address is string && data.address.size() <= 500
+          && data.principalName is string && data.principalName.size() <= 200
+          && data.principalEmail is string && data.principalEmail.size() <= 200
+          && (data.status == 'Active' || data.status == 'Inactive')
+          && data.registeredAt is string && data.registeredAt.size() <= 128;
+    }
+
+    function isValidTeacher(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.specialization is string && data.specialization.size() <= 200
+          && data.status is string && (data.status == 'Active' || data.status == 'On Leave');
+    }
+
+    function isValidStudent(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.rollNo is string && data.rollNo.size() <= 128
+          && (data.status == 'Active' || data.status == 'Inactive');
+    }
+
+    function isValidBatch(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && data.subject is string && data.subject.size() <= 200
+          && data.schedule is string && data.schedule.size() <= 200
+          && data.code is string && data.code.size() <= 128;
+    }
+
+    function isValidLesson(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.batchId is string && data.batchId.size() <= 128
+          && data.title is string && data.title.size() <= 250
+          && data.content is string && data.content.size() <= 10000
+          && data.date is string && data.date.size() <= 128
+          && (data.status == 'Draft' || data.status == 'Published' || data.status == 'Completed');
+    }
+
+    function isValidTest(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.batchId is string && data.batchId.size() <= 128
+          && data.title is string && data.title.size() <= 200
+          && data.date is string && data.date.size() <= 128
+          && (data.maxMarks is int || data.maxMarks is float);
+    }
+
+    function isValidTestSubmission(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.testId is string && data.testId.size() <= 128
+          && data.studentId is string && data.studentId.size() <= 128
+          && data.submittedAt is string && data.submittedAt.size() <= 128;
+    }
+
+    function isValidFeeInvoice(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.studentId is string && data.studentId.size() <= 128
+          && data.studentRollNo is string && data.studentRollNo.size() <= 128
+          && data.studentName is string && data.studentName.size() <= 200
+          && (data.amount is int || data.amount is float)
+          && data.dueDate is string && data.dueDate.size() <= 128
+          && data.title is string && data.title.size() <= 200
+          && (data.status == 'Paid' || data.status == 'Unpaid');
+    }
+
+    function isValidSupportMessage(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.senderId is string && data.senderId.size() <= 128
+          && data.senderName is string && data.senderName.size() <= 200
+          && (data.senderRole == 'student' || data.senderRole == 'teacher' || data.senderRole == 'admin' || data.senderRole == 'feemanager' || data.senderRole == 'admission')
+          && data.content is string && data.content.size() <= 5000
+          && data.timestamp is string && data.timestamp.size() <= 128
+          && data.studentId is string && data.studentId.size() <= 128;
+    }
+
+    function isValidContactLead(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.phone is string && data.phone.size() <= 128
+          && data.courseInterest is string && data.courseInterest.size() <= 200
+          && (data.status == 'New' || data.status == 'Contacted' || data.status == 'In Progress' || data.status == 'Enrolled' || data.status == 'Closed')
+          && data.date is string && data.date.size() <= 128;
+    }
+
+    function isValidSecuritySOSAlert(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.senderName is string && data.senderName.size() <= 200
+          && (data.senderRole == 'Student' || data.senderRole == 'Teacher' || data.senderRole == 'Admission' || data.senderRole == 'FeeManager' || data.senderRole == 'Admin')
+          && data.senderId is string && data.senderId.size() <= 128
+          && (data.severity == 'High' || data.severity == 'Critical' || data.severity == 'Standard')
+          && (data.type == 'SOS' || data.type == 'Security Issue' || data.type == 'Medical Emergency' || data.type == 'Fraud Warning' || data.type == 'Panic Alarm' || data.type == 'System Bypass')
+          && data.location is string && data.location.size() <= 500
+          && data.details is string && data.details.size() <= 5000
+          && data.timestamp is string && data.timestamp.size() <= 128
+          && data.resolved is bool;
+    }
+
+    function isValidComputerDesk(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.uniqueCode is string && data.uniqueCode.size() <= 128
+          && data.ipAddress is string && data.ipAddress.size() <= 128
+          && (data.status == 'Available' || data.status == 'Occupied' || data.status == 'Maintenance')
+          && data.roomNumber is string && data.roomNumber.size() <= 128;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.batchId is string && data.batchId.size() <= 128
+          && data.senderName is string && data.senderName.size() <= 200
+          && (data.senderRole == 'Admin' || data.senderRole == 'Teacher')
+          && data.title is string && data.title.size() <= 200
+          && data.content is string && data.content.size() <= 10000
+          && data.date is string && data.date.size() <= 128;
+    }
+
+    function isValidOnlineAnnouncement(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.title is string && data.title.size() <= 200
+          && data.content is string && data.content.size() <= 10000
+          && data.date is string && data.date.size() <= 128;
+    }
+
+    function isValidCounsellingRequest(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.studentName is string && data.studentName.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.topic is string && data.topic.size() <= 200
+          && data.description is string && data.description.size() <= 10000
+          && (data.status == 'Pending' || data.status == 'Active' || data.status == 'Closed')
+          && data.tempUsername is string && data.tempUsername.size() <= 128
+          && data.tempPassword is string && data.tempPassword.size() <= 128
+          && data.createdAt is string && data.createdAt.size() <= 128
+          && data.scheduledAt is string && data.scheduledAt.size() <= 128;
+    }
+
+    function isValidAdmissionRequest(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.studentName is string && data.studentName.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.mobileNumber is string && data.mobileNumber.size() <= 128
+          && data.dob is string && data.dob.size() <= 128
+          && data.fatherName is string && data.fatherName.size() <= 200
+          && data.motherName is string && data.motherName.size() <= 200
+          && data.batchId is string && data.batchId.size() <= 128
+          && data.teacherId is string && data.teacherId.size() <= 128
+          && data.teacherName is string && data.teacherName.size() <= 200
+          && (data.status == 'Pending' || data.status == 'Approved' || data.status == 'Rejected')
+          && data.createdAt is string && data.createdAt.size() <= 128;
+    }
+
+    function isValidCounsellingSlot(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.datetime is string && data.datetime.size() <= 128
+          && data.isBooked is bool;
+    }
+
+    function isValidAdminUser(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && (data.status == 'Active' || data.status == 'Inactive');
+    }
+
+    function isValidFeeManager(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && (data.status == 'Active' || data.status == 'Inactive');
+    }
+
+    function isValidAdmissionOfficer(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && (data.status == 'Active' || data.status == 'Inactive');
+    }
+
+    function isValidPublicBatch(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 200
+          && data.department is string && data.department.size() <= 200
+          && data.description is string && data.description.size() <= 10000
+          && data.duration is string && data.duration.size() <= 128
+          && data.isPublished is bool;
+    }
+
+    function isValidAppNotification(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.title is string && data.title.size() <= 200
+          && data.content is string && data.content.size() <= 10000
+          && data.senderName is string && data.senderName.size() <= 200
+          && data.senderRole is string && data.senderRole.size() <= 128
+          && data.timestamp is string && data.timestamp.size() <= 128;
+    }
+
+    function isValidAttendanceRecord(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.studentId is string && data.studentId.size() <= 128
+          && data.date is string && data.date.size() <= 128
+          && (data.status == 'Present' || data.status == 'Absent')
+          && data.batchId is string && data.batchId.size() <= 128;
+    }
+
+    function isValidAuthorizedDevice(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.deviceName is string && data.deviceName.size() <= 200
+          && data.deviceKey is string && data.deviceKey.size() <= 200
+          && data.authorizedAt is string && data.authorizedAt.size() <= 128;
+    }
+
+    // --- SECURED COLLECTIONS ---
+    match /schools/{schoolId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(schoolId) && isValidSchool(incoming());
+      allow update: if isSignedIn() && isValidId(schoolId) && isValidSchool(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /teachers/{teacherId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming());
+      allow update: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /students/{studentId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming());
+      allow update: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /batches/{batchId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
+      allow update: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /lessons/{lessonId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(lessonId) && isValidLesson(incoming());
+      allow update: if isSignedIn() && isValidId(lessonId) && isValidLesson(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /tests/{testId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(testId) && isValidTest(incoming());
+      allow update: if isSignedIn() && isValidId(testId) && isValidTest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /testSubmissions/{submissionId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(submissionId) && isValidTestSubmission(incoming());
+      allow update: if isSignedIn() && isValidId(submissionId) && isValidTestSubmission(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /computerDesks/{deskId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(deskId) && isValidComputerDesk(incoming());
+      allow update: if isSignedIn() && isValidId(deskId) && isValidComputerDesk(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /announcements/{announcementId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming());
+      allow update: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /feeInvoices/{invoiceId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(invoiceId) && isValidFeeInvoice(incoming());
+      allow update: if isSignedIn() && isValidId(invoiceId) && isValidFeeInvoice(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /supportMessages/{messageId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId) && isValidSupportMessage(incoming());
+      allow update: if isSignedIn() && isValidId(messageId) && isValidSupportMessage(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /contactLeads/{leadId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(leadId) && isValidContactLead(incoming());
+      allow update: if isSignedIn() && isValidId(leadId) && isValidContactLead(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /securitySOSAlerts/{alertId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(alertId) && isValidSecuritySOSAlert(incoming());
+      allow update: if isSignedIn() && isValidId(alertId) && isValidSecuritySOSAlert(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /onlineAnnouncements/{announcementId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(announcementId) && isValidOnlineAnnouncement(incoming());
+      allow update: if isSignedIn() && isValidId(announcementId) && isValidOnlineAnnouncement(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /counsellingRequests/{requestId} {
+      allow get, list: if true;
+      allow create: if isValidId(requestId) && isValidCounsellingRequest(incoming());
+      allow update: if isValidId(requestId) && isValidCounsellingRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /admins/{adminId} {
+      allow get, list: if true;
+      allow create: if isValidId(adminId) && isValidAdminUser(incoming());
+      allow update: if isValidId(adminId) && isValidAdminUser(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /feeManagers/{managerId} {
+      allow get, list: if true;
+      allow create: if isValidId(managerId) && isValidFeeManager(incoming());
+      allow update: if isValidId(managerId) && isValidFeeManager(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /admissionOfficers/{officerId} {
+      allow get, list: if true;
+      allow create: if isValidId(officerId) && isValidAdmissionOfficer(incoming());
+      allow update: if isValidId(officerId) && isValidAdmissionOfficer(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /counsellingSlots/{slotId} {
+      allow get, list: if true;
+      allow create: if isValidId(slotId) && isValidCounsellingSlot(incoming());
+      allow update: if isValidId(slotId) && isValidCounsellingSlot(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /admissionRequests/{requestId} {
+      allow get, list: if true;
+      allow create: if isValidId(requestId) && isValidAdmissionRequest(incoming());
+      allow update: if isValidId(requestId) && isValidAdmissionRequest(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /publicBatches/{batchId} {
+      allow get, list: if true;
+      allow create: if isValidId(batchId) && isValidPublicBatch(incoming());
+      allow update: if isValidId(batchId) && isValidPublicBatch(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /appNotifications/{notificationId} {
+      allow get, list: if true;
+      allow create: if isValidId(notificationId) && isValidAppNotification(incoming());
+      allow update: if isValidId(notificationId) && isValidAppNotification(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /attendanceRecords/{recordId} {
+      allow get, list: if true;
+      allow create: if isValidId(recordId) && isValidAttendanceRecord(incoming());
+      allow update: if isValidId(recordId) && isValidAttendanceRecord(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    match /authorizedDevices/{deviceId} {
+      allow get, list: if true;
+      allow create: if isValidId(deviceId) && isValidAuthorizedDevice(incoming());
+      allow update: if isValidId(deviceId) && isValidAuthorizedDevice(incoming());
+      allow delete: if isSignedIn();
+    }
+  }
+}
