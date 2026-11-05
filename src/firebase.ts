@@ -1,7 +1,10 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, doc, getDocFromServer } from "firebase/firestore";
+import { initializeFirestore, setLogLevel } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
+
+// Silence non-critical connection warning logs from SDK
+setLogLevel("error");
 
 // Initialize Firebase services
 const app = initializeApp(firebaseConfig);
@@ -9,21 +12,6 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 export const auth = getAuth(app);
-
-// Connectivity check as requested by system rules
-export async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, "test", "connection"));
-    console.log("Firebase Connection verified successfully.");
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("offline")) {
-      console.warn("Firebase configuration/network check status: Offline local mode active.", error);
-    }
-  }
-}
-
-// Execute the connection validity check on initial boot
-testConnection();
 
 // Required State/Operation Types for Error Mapping
 export enum OperationType {

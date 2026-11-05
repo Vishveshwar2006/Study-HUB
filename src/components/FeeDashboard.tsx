@@ -343,7 +343,7 @@ export default function FeeDashboard({
                 </div>
                 <div>
                   <span className="block text-[8px] font-black text-slate-450 uppercase tracking-widest">Realized Revenue</span>
-                  <span className="text-xl font-black text-slate-850 font-mono">₹{totalCollected.toLocaleString()} INR</span>
+                  <span className="text-xl font-black text-slate-850 font-mono">₹{(totalCollected ?? 0).toLocaleString()} INR</span>
                 </div>
               </motion.div>
 
@@ -357,7 +357,7 @@ export default function FeeDashboard({
                 </div>
                 <div>
                   <span className="block text-[8px] font-black text-slate-455 uppercase tracking-widest">Outstanding Claims</span>
-                  <span className="text-xl font-black text-slate-850 font-mono">₹{totalOutstanding.toLocaleString()} INR</span>
+                  <span className="text-xl font-black text-slate-850 font-mono">₹{(totalOutstanding ?? 0).toLocaleString()} INR</span>
                 </div>
               </motion.div>
 

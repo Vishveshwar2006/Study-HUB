@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Users, BookOpen, UserCheck, Megaphone, 
@@ -6,16 +6,20 @@ import {
   Lock, Key, ShieldAlert, Sparkles, User, Search,
   Eye, EyeOff, Shield, ToggleLeft, ToggleRight, CheckSquare,
   RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck, MessageSquare, Camera, Upload, Send,
-  Menu, X, QrCode, Scan, XCircle, Edit3, Receipt, Settings, UserPlus, ClipboardList
+  Menu, X, QrCode, Scan, XCircle, Edit3, Receipt, Settings, UserPlus, ClipboardList, ShoppingBag, MapPin, Truck, Printer, Filter,
+  UserMinus, Ban
 } from "lucide-react";
-import { Batch, Teacher, Student, Announcement, AdminUser, SupportMessage, ComputerDesk, Test, FeeManager, ContactLead, PublicBatch, AuthorizedDevice, School, SecuritySOSAlert, AdmissionOfficer, OnlineAnnouncement, CounsellingRequest, CounsellingSlot, AdmissionRequest, Verifier } from "../types";
+import { Batch, Teacher, Student, Announcement, AdminUser, SupportMessage, ComputerDesk, Test, FeeManager, ContactLead, PublicBatch, AuthorizedDevice, School, SecuritySOSAlert, AdmissionOfficer, OnlineAnnouncement, CounsellingRequest, CounsellingSlot, AdmissionRequest, Verifier, StoreOrder, StudyHubCenter } from "../types";
+import { initialStoreOrders, initialStudyHubCenters } from "../data";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import StudentQRCard from "./StudentQRCard";
 import QRCardScanner from "./QRCardScanner";
 import { Monitor, Laptop, PowerOff, ShieldAlert as AlertIcon, ToggleLeft as LockToggle, Edit, CheckCircle, PhoneCall, School as SchoolIcon } from "lucide-react";
 import { db, auth, OperationType } from "../firebase";
 import { collection, doc, setDoc, getDocs, deleteDoc } from "firebase/firestore";
-import { Cloud, CloudLightning, Database, HardDrive, HelpCircle } from "lucide-react";
+import { markIdAsDeleted } from "../lib/firestoreSync";
+import { Cloud, CloudLightning, Database, HardDrive, HelpCircle, Volume2 } from "lucide-react";
+import { playAnnouncementSound } from "../utils/sound";
 
 export function getRandomAvatarUrl(name: string): string {
   const images = [
@@ -75,6 +79,7 @@ interface AdminDashboardProps {
   onDeleteComputerDesk?: (id: string) => void;
   onUpdateComputerDesk?: (desk: ComputerDesk) => void;
   onUpdateStudentLock?: (id: string, isLocked: boolean) => void;
+  onUnenrollStudent?: (id: string) => void;
   onApproveTest?: (id: string, isApproved: boolean) => void;
   onDeleteTest?: (id: string) => void;
   onCreateFeeManager?: (fm: FeeManager) => void;
@@ -123,22 +128,32 @@ interface AdminDashboardProps {
   setAdmissionRequests?: React.Dispatch<React.SetStateAction<AdmissionRequest[]>>;
   setStudents?: React.Dispatch<React.SetStateAction<Student[]>>;
   setBatches?: React.Dispatch<React.SetStateAction<Batch[]>>;
-  activeTab?: "overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers";
-  setActiveTab?: (tab: "overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers") => void;
+  storeOrders?: StoreOrder[];
+  setStoreOrders?: React.Dispatch<React.SetStateAction<StoreOrder[]>>;
+  setSupportMessages?: React.Dispatch<React.SetStateAction<SupportMessage[]>>;
+  studyHubCenters?: StudyHubCenter[];
+  setStudyHubCenters?: React.Dispatch<React.SetStateAction<StudyHubCenter[]>>;
+  activeTab?: "centers" | "orders" | "overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers" | "create-user";
+  setActiveTab?: (tab: "centers" | "orders" | "overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers" | "create-user") => void;
   hideSidebarOnDesktop?: boolean;
 }
 
 export default function AdminDashboard({
-  batches,
-  teachers,
-  students,
-  announcements,
+  batches = [],
+  teachers = [],
+  students = [],
+  announcements = [],
+  storeOrders = initialStoreOrders,
+  setStoreOrders = () => {},
+  studyHubCenters = initialStudyHubCenters,
+  setStudyHubCenters = () => {},
   admissionRequests = [],
   setAdmissionRequests = () => {},
   setStudents = () => {},
   setBatches = () => {},
   admins = [],
   supportMessages = [],
+  setSupportMessages = () => {},
   computerDesks = [],
   tests = [],
   feeManagers = [],
@@ -170,6 +185,7 @@ export default function AdminDashboard({
   onDeleteComputerDesk,
   onUpdateComputerDesk,
   onUpdateStudentLock,
+  onUnenrollStudent,
   onApproveTest,
   onDeleteTest,
   onCreateFeeManager,
@@ -218,7 +234,186 @@ export default function AdminDashboard({
   setActiveTab: propSetActiveTab,
   hideSidebarOnDesktop = false
 }: AdminDashboardProps) {
-  const [localActiveTab, setLocalActiveTab ] = useState<"overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers" >("overview");
+  const [localActiveTab, setLocalActiveTab] = useState<"centers" | "orders" | "overview" | "schools" | "batches" | "teachers" | "feemanagers" | "students" | "announcements" | "online-announcements" | "leads" | "logins" | "profile" | "support" | "scanner" | "computers" | "tests" | "website-control" | "settings" | "emergency" | "admissions" | "firebase" | "counselling" | "counselling-slots" | "verifiers" | "create-user">("overview");
+  
+  // Physical Study Hub Centers Management State
+  const [centerSearch, setCenterSearch] = useState<string>("");
+  const [isAddCenterModalOpen, setIsAddCenterModalOpen] = useState<boolean>(false);
+  const [editingCenter, setEditingCenter] = useState<StudyHubCenter | null>(null);
+  
+  const [centerForm, setCenterForm] = useState<{
+    name: string;
+    city: string;
+    address: string;
+    pincode: string;
+    contactNumber: string;
+    email: string;
+    operatingHours: string;
+    managerName: string;
+    mapQuery: string;
+  }>({
+    name: "",
+    city: "Bhopal",
+    address: "",
+    pincode: "",
+    contactNumber: "",
+    email: "",
+    operatingHours: "09:00 AM - 07:00 PM (Mon-Sat)",
+    managerName: "",
+    mapQuery: ""
+  });
+
+  const handleOpenAddCenter = () => {
+    setEditingCenter(null);
+    setCenterForm({
+      name: "",
+      city: "Bhopal",
+      address: "",
+      pincode: "",
+      contactNumber: "",
+      email: "",
+      operatingHours: "09:00 AM - 07:00 PM (Mon-Sat)",
+      managerName: "",
+      mapQuery: ""
+    });
+    setIsAddCenterModalOpen(true);
+  };
+
+  const handleOpenEditCenter = (center: StudyHubCenter) => {
+    setEditingCenter(center);
+    setCenterForm({
+      name: center.name,
+      city: center.city,
+      address: center.address,
+      pincode: center.pincode,
+      contactNumber: center.contactNumber,
+      email: center.email,
+      operatingHours: center.operatingHours,
+      managerName: center.managerName,
+      mapQuery: center.mapQuery || ""
+    });
+    setIsAddCenterModalOpen(true);
+  };
+
+  const handleSaveCenter = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!centerForm.name.trim() || !centerForm.address.trim()) return;
+
+    if (editingCenter) {
+      const updated: StudyHubCenter = {
+        ...editingCenter,
+        name: centerForm.name,
+        city: centerForm.city,
+        address: centerForm.address,
+        pincode: centerForm.pincode,
+        contactNumber: centerForm.contactNumber,
+        email: centerForm.email,
+        operatingHours: centerForm.operatingHours,
+        managerName: centerForm.managerName,
+        mapQuery: centerForm.mapQuery || `${centerForm.name}, ${centerForm.city}`
+      };
+      setStudyHubCenters(prev => prev.map(c => c.id === editingCenter.id ? updated : c));
+    } else {
+      const newCenter: StudyHubCenter = {
+        id: "center_" + Date.now(),
+        name: centerForm.name,
+        city: centerForm.city,
+        address: centerForm.address,
+        pincode: centerForm.pincode,
+        contactNumber: centerForm.contactNumber,
+        email: centerForm.email,
+        operatingHours: centerForm.operatingHours,
+        managerName: centerForm.managerName,
+        mapQuery: centerForm.mapQuery || `${centerForm.name}, ${centerForm.city}`
+      };
+      setStudyHubCenters(prev => [newCenter, ...prev]);
+    }
+
+    setIsAddCenterModalOpen(false);
+  };
+
+  const handleDeleteCenter = (centerId: string) => {
+    if (confirm("Are you sure you want to delete this Study Hub Physical Center?")) {
+      markIdAsDeleted("studyHubCenters", centerId);
+      setStudyHubCenters(prev => prev.filter(c => c.id !== centerId));
+      deleteDoc(doc(db, "studyHubCenters", centerId)).catch(() => {});
+    }
+  };
+  
+  // Order Control & Offline Payment Verification States
+  const [orderFilter, setOrderFilter] = useState<string>("All");
+  const [orderSearch, setOrderSearch] = useState<string>("");
+  const [recentlyUpdatedOrderIds, setRecentlyUpdatedOrderIds] = useState<Record<string, string>>({});
+  const [editingComments, setEditingComments] = useState<Record<string, string>>({});
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+    const comment = editingComments[orderId];
+    const timestamp = new Date().toLocaleDateString('en-IN') + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    let updatedOrderObj: StoreOrder | null = null;
+    const nextOrders = storeOrders.map(ord => {
+      if (ord.id === orderId) {
+        updatedOrderObj = {
+          ...ord,
+          status: newStatus as any,
+          adminComment: comment !== undefined ? comment : ord.adminComment,
+          paymentConfirmedAt: newStatus === "Payment Confirmed / Active" ? timestamp : ord.paymentConfirmedAt
+        };
+        return updatedOrderObj;
+      }
+      return ord;
+    });
+
+    setStoreOrders(nextOrders);
+    localStorage.setItem("co_store_orders", JSON.stringify(nextOrders));
+    setRecentlyUpdatedOrderIds(prev => ({ ...prev, [orderId]: newStatus }));
+
+    if (updatedOrderObj) {
+      try {
+        await setDoc(doc(db, "storeOrders", orderId), updatedOrderObj);
+      } catch (err) {
+        console.error("Error saving updated order status to Firestore:", err);
+      }
+    }
+  };
+
+  const handleDeleteOrder = async (orderId: string, studentName?: string) => {
+    if (confirm(`Are you sure you want to permanently delete order "${orderId}"${studentName ? ` for ${studentName}` : ''}? This action cannot be undone.`)) {
+      markIdAsDeleted("storeOrders", orderId);
+      setStoreOrders(prev => {
+        const next = prev.filter(ord => ord.id !== orderId);
+        localStorage.setItem("co_store_orders", JSON.stringify(next));
+        return next;
+      });
+      try {
+        await deleteDoc(doc(db, "storeOrders", orderId));
+      } catch (err) {
+        console.error("Error deleting order from Firestore:", err);
+      }
+    }
+  };
+
+  const filteredOrders = (storeOrders || []).filter(ord => {
+    const isConfirmed = ord.status === "Confirmed" || ord.status === "Payment Confirmed / Active" || ord.status === "Verified & Approved" || ord.status === "Active";
+    const isPending = ord.status === "Pending Confirmation" || ord.status === "Pending Admin Verification" || ord.status === "Pending Payment at Center" || ord.status === "Placed" || ord.status === "Pending";
+
+    const matchesFilter = 
+      orderFilter === "All" ? true :
+      orderFilter === "Pending" || orderFilter === "Pending Admin Verification" ? isPending :
+      orderFilter === "Confirmed" || orderFilter === "Verified & Approved" || orderFilter === "Payment Confirmed / Active" ? isConfirmed :
+      orderFilter === "Cancelled" ? ord.status === "Cancelled" : true;
+
+    const matchesSearch = 
+      !orderSearch ||
+      ord.id.toLowerCase().includes(orderSearch.toLowerCase()) ||
+      ord.studentName.toLowerCase().includes(orderSearch.toLowerCase()) ||
+      ord.studentEmail.toLowerCase().includes(orderSearch.toLowerCase()) ||
+      ord.studentMobile.includes(orderSearch) ||
+      (ord.centerName && ord.centerName.toLowerCase().includes(orderSearch.toLowerCase())) ||
+      (ord.items && ord.items.some(i => i.itemName.toLowerCase().includes(orderSearch.toLowerCase())));
+
+    return matchesFilter && matchesSearch;
+  });
   
   // Branded LMS & Tuition Fee settings states from given info
   const [tuitionBaseFee, setTuitionBaseFee] = useState<number>(() => {
@@ -281,6 +476,275 @@ export default function AdminDashboard({
   const setActiveTab = propSetActiveTab || setLocalActiveTab;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedChatStudentId, setSelectedChatStudentId] = useState<string>("");
+  const [supportSearchInput, setSupportSearchInput] = useState<string>("");
+  const [supportOrderStatusFilter, setSupportOrderStatusFilter] = useState<string>("all");
+  const [adminReplyText, setAdminReplyText] = useState<string>("");
+
+  // Admin chat auto-scroll anchor & hook
+  const adminChatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedChatStudentId) {
+      setTimeout(() => {
+        adminChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  }, [selectedChatStudentId, supportMessages]);
+
+  const handleDeleteSupportChatThread = async (studentId: string) => {
+    const targetStudent = students.find(s => s.id === studentId);
+    const confirmDelete = window.confirm(
+      `Are you sure you want to PERMANENTLY delete the entire chat thread for ${targetStudent?.name || "this student"}?\n\nThis will permanently erase all messages and CANNOT be restored.`
+    );
+    if (!confirmDelete) return;
+
+    if (setSupportMessages) {
+      setSupportMessages(prev => prev.filter(m => m.studentId !== studentId));
+    }
+
+    const msgsToDelete = supportMessages.filter(m => m.studentId === studentId);
+    msgsToDelete.forEach(async (m) => {
+      markIdAsDeleted("supportMessages", m.id);
+      try {
+        await deleteDoc(doc(db, "supportMessages", m.id));
+      } catch (err) {
+        console.error("Error deleting support message from Firestore:", err);
+      }
+    });
+
+    setSelectedChatStudentId("");
+    alert("Chat thread permanently deleted.");
+  };
+
+  const handleAdminUpdateOrderAddress = async (orderId: string, currentAddr: string) => {
+    const newAddr = window.prompt(`Enter new delivery address for Order #${orderId}:`, currentAddr);
+    if (newAddr === null || !newAddr.trim()) return;
+    const clean = newAddr.trim();
+
+    const updatedOrders = storeOrders.map(o => o.id === orderId ? { ...o, shippingAddress: clean } : o);
+    setStoreOrders(updatedOrders);
+    localStorage.setItem("co_store_orders", JSON.stringify(updatedOrders));
+
+    const targetOrder = storeOrders.find(o => o.id === orderId);
+    if (targetOrder) {
+      const updatedObj = { ...targetOrder, shippingAddress: clean };
+      try {
+        await setDoc(doc(db, "storeOrders", orderId), updatedObj);
+      } catch (e) {
+        console.error("Error updating Firestore order:", e);
+      }
+    }
+
+    // Append admin note into chat
+    if (selectedChatStudentId) {
+      onSendSupportMessage(`[Admin Update] Updated delivery address for Order #${orderId} to: "${clean}"`, selectedChatStudentId);
+    }
+    alert(`Delivery address updated for Order #${orderId}`);
+  };
+
+  const handleAdminCancelOrder = async (orderId: string) => {
+    if (!window.confirm(`Are you sure you want to cancel Order #${orderId}?`)) return;
+    const updatedOrders = storeOrders.map(o => o.id === orderId ? { ...o, status: "Cancelled", adminComment: `Cancelled by admin on ${new Date().toLocaleDateString('en-IN')}` } : o);
+    setStoreOrders(updatedOrders);
+    localStorage.setItem("co_store_orders", JSON.stringify(updatedOrders));
+
+    const targetOrder = storeOrders.find(o => o.id === orderId);
+    if (targetOrder) {
+      const updatedObj = { ...targetOrder, status: "Cancelled", adminComment: `Cancelled by admin on ${new Date().toLocaleDateString('en-IN')}` };
+      try {
+        await setDoc(doc(db, "storeOrders", orderId), updatedObj);
+      } catch (e) {
+        console.error("Error updating Firestore order:", e);
+      }
+    }
+
+    // Append admin note into chat
+    if (selectedChatStudentId) {
+      onSendSupportMessage(`[Admin Update] Order #${orderId} has been cancelled by Admin.`, selectedChatStudentId);
+    }
+    alert(`Order #${orderId} has been cancelled.`);
+  };
+
+  // Admin Order Demand Creation state
+  const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
+  const [newOrderStudentId, setNewOrderStudentId] = useState("");
+  const [newOrderItemName, setNewOrderItemName] = useState("");
+  const [newOrderPrice, setNewOrderPrice] = useState<number>(0);
+  const [newOrderAddress, setNewOrderAddress] = useState("");
+  const [newOrderPaymentMethod, setNewOrderPaymentMethod] = useState("Paid Cash at Center");
+  const [newOrderStatus, setNewOrderStatus] = useState("Verified & Approved");
+  const [newOrderAdminNote, setNewOrderAdminNote] = useState("");
+
+  const handlePrintOrderReceipt = (order: StoreOrder) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print/download the order receipt.");
+      return;
+    }
+
+    const itemsHtml = (order.items || [])
+      .map(
+        (item, idx) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${idx + 1}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-weight: bold;">${item.itemName}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: center;">${item.quantity || 1}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace;">₹${(item.price || 0).toLocaleString("en-IN")}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: right; font-family: monospace; font-weight: bold;">₹${((item.price || 0) * (item.quantity || 1)).toLocaleString("en-IN")}</td>
+      </tr>
+    `
+      )
+      .join("");
+
+    const content = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Order Receipt - ${order.id}</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #1e293b; max-width: 800px; margin: 0 auto; background: #fff; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ea580c; padding-bottom: 20px; margin-bottom: 20px; }
+            .logo { font-size: 24px; font-weight: 900; color: #c2410c; letter-spacing: 1px; }
+            .sub { font-size: 11px; color: #64748b; margin-top: 4px; }
+            .badge { background: #ffedf0; color: #c2410c; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: bold; border: 1px solid #fecdd3; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+            .box { background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
+            .label { font-size: 10px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 4px; }
+            .val { font-size: 13px; font-weight: bold; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px; }
+            th { background: #f1f5f9; padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569; border-bottom: 2px solid #cbd5e1; }
+            .total-box { text-align: right; margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; }
+            .actions { margin-top: 30px; text-align: center; }
+            .btn { background: #ea580c; color: white; border: none; padding: 12px 28px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+            @media print { .actions { display: none; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="logo">COACHING HUB STORE</div>
+              <div class="sub">OFFICIAL TAX INVOICE & ORDER RECEIPT</div>
+            </div>
+            <div class="badge">${order.status || "CONFIRMED"}</div>
+          </div>
+
+          <div class="grid">
+            <div class="box">
+              <div class="label">Order Information</div>
+              <div class="val">Order ID: #${order.id}</div>
+              <div style="font-size: 12px; color: #475569; margin-top: 4px;">Date: ${order.orderDate || new Date().toLocaleDateString("en-IN")}</div>
+              <div style="font-size: 12px; color: #475569; margin-top: 2px;">Payment Method: ${order.paymentMethod || "Center Payment"}</div>
+            </div>
+            <div class="box">
+              <div class="label">Customer / Student Details</div>
+              <div class="val">${order.studentName || "Student"}</div>
+              <div style="font-size: 12px; color: #475569; margin-top: 4px;">Phone: ${order.studentMobile || "N/A"}</div>
+              <div style="font-size: 12px; color: #475569; margin-top: 2px;">Email: ${order.studentEmail || "N/A"}</div>
+              <div style="font-size: 12px; color: #475569; margin-top: 2px;">Delivery Address: ${order.shippingAddress || "Home Delivery / Center"}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: center;">#</th>
+                <th>Item / Product Description</th>
+                <th style="text-align: center;">Qty</th>
+                <th style="text-align: right;">Price</th>
+                <th style="text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+          <div class="total-box">
+            <div style="font-size: 12px; color: #64748b;">Subtotal: ₹${(order.totalAmount || 0).toLocaleString("en-IN")}</div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 2px;">Taxes & Handling: Inclusive</div>
+            <div style="font-size: 18px; font-weight: 900; color: #ea580c; margin-top: 8px;">Grand Total: ₹${(order.totalAmount || 0).toLocaleString("en-IN")}</div>
+          </div>
+
+          ${
+            order.adminComment
+              ? `
+            <div style="margin-top: 20px; font-size: 11px; color: #475569; background: #fff7ed; padding: 10px; border-radius: 8px; border: 1px solid #ffedd5;">
+              <strong>Verification Note:</strong> ${order.adminComment}
+            </div>
+          `
+              : ""
+          }
+
+          <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; color: #94a3b8;">
+            <div>
+              <p>Authorized Signature: _______________________</p>
+              <p style="margin-top: 4px;">CoachingHub Admissions & Store Department</p>
+            </div>
+            <div>Thank you for your order! Keep this receipt for verification.</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" onclick="window.print()">🖨️ Print Receipt / Download PDF</button>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(content);
+    printWindow.document.close();
+  };
+
+  const handleCreateOrderDemand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newOrderStudentId || !newOrderItemName.trim() || newOrderPrice <= 0) {
+      alert("Please select a student, enter item name and valid price.");
+      return;
+    }
+
+    const selectedStd = students.find(s => s.id === newOrderStudentId);
+    if (!selectedStd) return;
+
+    const newOrderObj: StoreOrder = {
+      id: "ORD_" + Date.now().toString().slice(-6),
+      studentId: selectedStd.id,
+      studentName: selectedStd.name,
+      studentMobile: selectedStd.mobileNumber || "N/A",
+      studentEmail: selectedStd.email || "N/A",
+      items: [
+        {
+          itemId: "item_" + Date.now(),
+          itemName: newOrderItemName.trim(),
+          price: Number(newOrderPrice),
+          quantity: 1
+        }
+      ],
+      totalAmount: Number(newOrderPrice),
+      status: newOrderStatus,
+      orderDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      shippingAddress: newOrderAddress.trim() || "Delivery at Home / Center",
+      paymentMethod: newOrderPaymentMethod,
+      adminComment: newOrderAdminNote.trim() || `Created by Admin on student demand for ${selectedStd.name}.`,
+      centerName: "Study Hub Center"
+    };
+
+    const updated = [newOrderObj, ...storeOrders];
+    setStoreOrders(updated);
+    localStorage.setItem("co_store_orders", JSON.stringify(updated));
+
+    try {
+      await setDoc(doc(db, "storeOrders", newOrderObj.id), newOrderObj);
+    } catch (err) {
+      console.error("Firestore order save error:", err);
+    }
+
+    setIsCreateOrderModalOpen(false);
+    setNewOrderStudentId("");
+    setNewOrderItemName("");
+    setNewOrderPrice(0);
+    setNewOrderAddress("");
+    setNewOrderAdminNote("");
+    alert(`Order #${newOrderObj.id} successfully created for ${selectedStd.name}!`);
+  };
 
   // Local state for registered computer workspaces
   const [newDeskCode, setNewDeskCode] = useState("");
@@ -309,6 +773,29 @@ export default function AdminDashboard({
   const [editStudentMobile, setEditStudentMobile] = useState("");
   const [editStudentBatchId, setEditStudentBatchId] = useState("");
   const [editStudentDob, setEditStudentDob] = useState("");
+
+  // --- LIVE STUDENT ENROLLMENT MANAGEMENT FEEDBACK (3 SECONDS DURATION) ---
+  const [liveStudentAction, setLiveStudentAction] = useState<
+    Record<string, { type: "block" | "unenroll" | "edit" | "delete"; message: string; timestamp: number }>
+  >({});
+
+  const triggerLiveStudentFeedback = (
+    studentId: string,
+    type: "block" | "unenroll" | "edit" | "delete",
+    message: string
+  ) => {
+    setLiveStudentAction((prev) => ({
+      ...prev,
+      [studentId]: { type, message, timestamp: Date.now() },
+    }));
+    setTimeout(() => {
+      setLiveStudentAction((prev) => {
+        const next = { ...prev };
+        delete next[studentId];
+        return next;
+      });
+    }, 3000);
+  };
 
   // Dynamic Public Website Batches States
   const [isAddingPublicBatch, setIsAddingPublicBatch] = useState(false);
@@ -371,6 +858,7 @@ export default function AdminDashboard({
 
   // New Teacher Form State
   const [newTeacherName, setNewTeacherName] = useState("");
+  const [newTeacherUsername, setNewTeacherUsername] = useState("");
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
   const [newTeacherSpecs, setNewTeacherSpecs] = useState("");
   const [newTeacherPassword, setNewTeacherPassword] = useState("");
@@ -444,6 +932,11 @@ export default function AdminDashboard({
   const [credsIdentifier, setCredsIdentifier] = useState("");
   const [credsPassword, setCredsPassword] = useState("");
   const [credsMobile, setCredsMobile] = useState("");
+  const [credsEmail, setCredsEmail] = useState("");
+  const [credsBatchId, setCredsBatchId] = useState("");
+  const [credsSchoolId, setCredsSchoolId] = useState("");
+  const [credsSpecialization, setCredsSpecialization] = useState("");
+  const [credsRollNo, setCredsRollNo] = useState("");
   const [credsSearch, setCredsSearch] = useState("");
   const [credsRoleFilter, setCredsRoleFilter] = useState<"all" | "admin" | "teacher" | "student" | "feemanager" | "admission" | "verifier" | "professor">("all");
   const [credsStatusFilter, setCredsStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -496,51 +989,52 @@ export default function AdminDashboard({
         id: "admin_" + Date.now(),
         name: nameVal,
         username: idVal,
-        email: `${idVal}@admin.com`,
+        email: credsEmail.trim() || `${idVal}@admin.com`,
         status: "Active",
         password: passVal,
         avatar: getRandomAvatarUrl(nameVal)
       };
       onCreateAdmin?.(newAdmin);
-      alert(`Master administrative account successfully authorized!\nUsername: @${idVal}\nPassword: ${passVal}`);
+      alert(`Master administrative account created successfully!\nUsername: @${idVal}\nPassword: ${passVal}`);
     } else if (credsRole === "teacher" || credsRole === "professor") {
       const isProf = credsRole === "professor";
       const newTeacher: Teacher = {
         id: "t_" + Date.now(),
         name: nameVal,
         username: idVal,
-        email: `${idVal}@apexcollege.edu`,
-        specialization: isProf ? "College Faculty Member / Professor" : "Computer Science",
+        email: credsEmail.trim() || `${idVal}@apexcollege.edu`,
+        specialization: credsSpecialization.trim() || (isProf ? "College Faculty Member / Professor" : "Computer Science"),
+        schoolId: credsSchoolId || undefined,
         avatar: getRandomAvatarUrl(nameVal),
         status: "Active",
         password: passVal
       };
       onCreateTeacher(newTeacher);
-      alert(`${isProf ? "College Faculty Member / Professor" : "Teacher"} account registered with login status enabled!\nUsername: @${idVal}\nPassword: ${passVal}`);
+      alert(`${isProf ? "College Faculty Member / Professor" : "Teacher"} account registered!\nUsername: @${idVal}\nPassword: ${passVal}`);
     } else if (credsRole === "feemanager") {
       const newFM: FeeManager = {
         id: "fm_" + Date.now(),
         name: nameVal,
         username: idVal,
-        email: `${idVal}@apexcollege.edu`,
+        email: credsEmail.trim() || `${idVal}@apexcollege.edu`,
         status: "Active",
         password: passVal,
         avatar: getRandomAvatarUrl(nameVal)
       };
       onCreateFeeManager?.(newFM);
-      alert(`Fee Manager account successfully authorized!\nUsername: @${idVal}\nPassword: ${passVal}`);
+      alert(`Fee Manager account created successfully!\nUsername: @${idVal}\nPassword: ${passVal}`);
     } else if (credsRole === "admission") {
       const newOfficer: AdmissionOfficer = {
         id: "admission_" + Date.now(),
         name: nameVal,
         username: idVal,
-        email: `${idVal}@apexcollege.edu`,
+        email: credsEmail.trim() || `${idVal}@apexcollege.edu`,
         status: "Active",
         password: passVal,
         avatar: getRandomAvatarUrl(nameVal)
       };
       onCreateAdmissionOfficer?.(newOfficer);
-      alert(`Admissions Desk Staff successfully authorized!\nUsername: @${idVal}\nPassword: ${passVal}`);
+      alert(`Admissions Desk Staff created successfully!\nUsername: @${idVal}\nPassword: ${passVal}`);
     } else if (credsRole === "verifier") {
       const newVerifier: Verifier = {
         id: "verifier_" + Date.now(),
@@ -551,23 +1045,36 @@ export default function AdminDashboard({
         employeeCode: "VRF" + Math.floor(1000 + Math.random() * 9000)
       };
       onCreateVerifier?.(newVerifier);
-      alert(`Verifier account registered with login status enabled!\nUsername: @${idVal}\nPassword: ${passVal}`);
+      alert(`Verifier account registered successfully!\nUsername: @${idVal}\nPassword: ${passVal}`);
     } else {
       // Student
-      const generatedRoll = "CO-2026-" + Math.floor(200 + Math.random() * 800);
+      const generatedRoll = credsRollNo.trim() || ("CO-2026-" + Math.floor(200 + Math.random() * 800));
       const newStudent: Student = {
         id: "s_" + Date.now(),
         name: nameVal,
         username: idVal,
-        email: `${idVal}@student.com`,
+        email: credsEmail.trim() || `${idVal}@student.com`,
         rollNo: generatedRoll,
+        schoolId: credsSchoolId || undefined,
         avatar: getRandomAvatarUrl(nameVal),
         status: "Active",
         password: passVal,
-        mobileNumber: "98765" + Math.floor(10000 + Math.random() * 90000)
+        mobileNumber: credsMobile.trim() || ("98765" + Math.floor(10000 + Math.random() * 90000))
       };
       onCreateStudent(newStudent);
-      alert(`Student profile registered successfully!\nUsername: @${idVal}\nPassword: ${passVal}\nRoll: ${newStudent.rollNo}`);
+
+      // Auto-assign student to selected batch if provided
+      if (credsBatchId) {
+        const targetBatch = batches.find(b => b.id === credsBatchId);
+        if (targetBatch && !targetBatch.studentIds.includes(newStudent.id)) {
+          onUpdateBatch?.({
+            ...targetBatch,
+            studentIds: [...targetBatch.studentIds, newStudent.id]
+          });
+        }
+      }
+
+      alert(`Student profile created successfully for Study!\nUsername: @${idVal}\nPassword: ${passVal}\nRoll No: ${newStudent.rollNo}`);
     }
 
     // Reset Form
@@ -575,6 +1082,11 @@ export default function AdminDashboard({
     setCredsIdentifier("");
     setCredsPassword("");
     setCredsMobile("");
+    setCredsEmail("");
+    setCredsBatchId("");
+    setCredsSchoolId("");
+    setCredsSpecialization("");
+    setCredsRollNo("");
   };
 
   const handleCreateBatch = (e: React.FormEvent) => {
@@ -606,10 +1118,12 @@ export default function AdminDashboard({
     e.preventDefault();
     if (!newTeacherName || !newTeacherEmail) return;
 
+    const finalUsername = newTeacherUsername.trim().toLowerCase().replace(/\s+/g, "") || newTeacherEmail.split("@")[0] || "teacher_" + Date.now();
     const finalPassword = newTeacherPassword.trim() || "teach" + Math.floor(100 + Math.random() * 900);
     const newTeacher: Teacher = {
       id: "t_" + Date.now(),
       name: newTeacherName,
+      username: finalUsername,
       email: newTeacherEmail,
       specialization: newTeacherSpecs || "General Studies",
       avatar: getRandomAvatarUrl(newTeacherName),
@@ -620,11 +1134,12 @@ export default function AdminDashboard({
 
     onCreateTeacher(newTeacher);
     setNewTeacherName("");
+    setNewTeacherUsername("");
     setNewTeacherEmail("");
     setNewTeacherSpecs("");
     setNewTeacherPassword("");
     setNewTeacherSchoolId("");
-    alert(`Teacher registered successfully! Login details given: Email: ${newTeacherEmail}, Code: ${finalPassword}`);
+    alert(`Teacher registered successfully! Login details given: Username: @${finalUsername}, Email: ${newTeacherEmail}, Code: ${finalPassword}`);
   };
 
   const handleCreateFeeManager = (e: React.FormEvent) => {
@@ -932,9 +1447,9 @@ export default function AdminDashboard({
   };
 
   // Recharts metric preparation
-  const chartData = batches.map(b => ({
+  const chartData = (batches || []).map(b => ({
     name: b.name,
-    strength: b.studentIds.length,
+    strength: (b.studentIds || []).length,
     subject: b.subject,
   }));
 
@@ -968,7 +1483,7 @@ export default function AdminDashboard({
   // State and helper for red active & black hover tabs with light sidebar background
   const getMenuBtnStyle = (tabName: string) => {
     const isActive = activeTab === tabName;
-    return `flex items-center justify-between lg:justify-start space-x-2.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold uppercase tracking-widest transition-all duration-200 shrink-0 whitespace-nowrap cursor-pointer border ${
+    return `flex items-center justify-between lg:justify-start space-x-3 px-4 py-3 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-widest transition-all duration-200 shrink-0 whitespace-nowrap cursor-pointer border ${
       isActive 
         ? "bg-red-600 border-red-600 text-white shadow-xs hover:bg-black hover:border-black hover:text-white" 
         : "bg-white border-slate-200 text-slate-800 hover:bg-black hover:border-black hover:text-white"
@@ -1015,16 +1530,19 @@ export default function AdminDashboard({
           </h3>
           <button
             onClick={() => {
-              setActiveTab("overview");
+              setActiveTab("create-user");
               setIsMobileMenuOpen(false);
             }}
-            className={getMenuBtnStyle("overview")}
-            id="tab-admin-overview"
+            className={getMenuBtnStyle("create-user")}
+            id="tab-admin-create-user"
           >
             <div className="flex items-center space-x-2.5">
-              <Award className="w-4 h-4 shrink-0" />
-              <span>Overview & Insights</span>
+              <UserPlus className="w-4 h-4 shrink-0 text-emerald-500 font-bold" />
+              <span>Create User (Admin Only)</span>
             </div>
+            <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 border border-emerald-500/20 leading-none">
+              Create
+            </span>
           </button>
 
           <button
@@ -1057,34 +1575,6 @@ export default function AdminDashboard({
 
           <button
             onClick={() => {
-              setActiveTab("teachers");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("teachers")}
-            id="tab-admin-teachers"
-          >
-            <div className="flex items-center space-x-2.5">
-              <Users className="w-4 h-4 shrink-0" />
-              <span>Manage Academic Faculty ({teachers.length})</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveTab("feemanagers");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("feemanagers")}
-            id="tab-admin-feemanagers"
-          >
-            <div className="flex items-center space-x-2.5">
-              <Receipt className="w-4 h-4 shrink-0" />
-              <span>Fee Managers (Acc.) ({feeManagers.length})</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
               setActiveTab("admissions");
               setIsMobileMenuOpen(false);
             }}
@@ -1108,20 +1598,6 @@ export default function AdminDashboard({
             <div className="flex items-center space-x-2.5">
               <ShieldCheck className="w-4 h-4 shrink-0 text-blue-500" />
               <span>Identity Verifiers ({verifiers.length})</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveTab("students");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("students")}
-            id="tab-admin-students"
-          >
-            <div className="flex items-center space-x-2.5">
-              <UserCheck className="w-4 h-4 shrink-0" />
-              <span>Scholars Database ({students.length})</span>
             </div>
           </button>
 
@@ -1242,6 +1718,41 @@ export default function AdminDashboard({
 
           <button
             onClick={() => {
+              setActiveTab("orders");
+              setIsMobileMenuOpen(false);
+            }}
+            className={getMenuBtnStyle("orders")}
+            id="tab-admin-orders"
+          >
+            <div className="flex items-center space-x-2.5">
+              <ShoppingBag className="w-4 h-4 shrink-0 text-amber-500" />
+              <span>Order Control & Access</span>
+            </div>
+            {storeOrders.filter(o => o.status === "Pending Payment at Center").length > 0 && (
+              <span className={`font-mono text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse transition-all ${
+                activeTab === "orders" ? "bg-amber-100 text-amber-800" : "bg-amber-600 text-white"
+              }`}>
+                {storeOrders.filter(o => o.status === "Pending Payment at Center").length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab("centers");
+              setIsMobileMenuOpen(false);
+            }}
+            className={getMenuBtnStyle("centers")}
+            id="tab-admin-centers"
+          >
+            <div className="flex items-center space-x-2.5">
+              <SchoolIcon className="w-4 h-4 shrink-0 text-emerald-500" />
+              <span>Physical Centers ({(studyHubCenters || []).length})</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => {
               setActiveTab("website-control");
               setIsMobileMenuOpen(false);
             }}
@@ -1270,34 +1781,6 @@ export default function AdminDashboard({
 
           <button
             onClick={() => {
-              setActiveTab("settings");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("settings")}
-            id="tab-admin-settings"
-          >
-            <div className="flex items-center space-x-2.5">
-              <Settings className="w-4 h-4 shrink-0 animate-spin-slow" />
-              <span>Admin Systems Settings</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveTab("firebase");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("firebase")}
-            id="tab-admin-firebase"
-          >
-            <div className="flex items-center space-x-2.5 text-blue-600 dark:text-blue-400">
-              <Cloud className="w-4 h-4 shrink-0 animate-pulse" />
-              <span className="font-extrabold uppercase text-[11.5px] tracking-wider">Firebase Cloud Sync</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
               setActiveTab("scanner");
               setIsMobileMenuOpen(false);
             }}
@@ -1307,20 +1790,6 @@ export default function AdminDashboard({
             <div className="flex items-center space-x-2.5">
               <Scan className="w-4 h-4 shrink-0" />
               <span>ID QR Card Scanner</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => {
-              setActiveTab("logins");
-              setIsMobileMenuOpen(false);
-            }}
-            className={getMenuBtnStyle("logins")}
-            id="tab-admin-logins"
-          >
-            <div className="flex items-center space-x-2.5">
-              <UserPlus className="w-4 h-4 shrink-0" />
-              <span>Add Employee & Logins</span>
             </div>
           </button>
 
@@ -2198,7 +2667,7 @@ export default function AdminDashboard({
             <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
               <h4 className="text-sm font-bold text-slate-800 tracking-tight uppercase mb-4">Register New College Faculty Member / Professor</h4>
               <form onSubmit={handleCreateTeacher} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Mentor Name</label>
                     <input 
@@ -2208,6 +2677,16 @@ export default function AdminDashboard({
                       onChange={e => setNewTeacherName(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-indigo-500"
                       required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-indigo-600 uppercase mb-2">Username</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. feynman_doc"
+                      value={newTeacherUsername} 
+                      onChange={e => setNewTeacherUsername(e.target.value.toLowerCase().trim().replace(/\s+/g, ""))}
+                      className="w-full bg-indigo-50/40 border border-indigo-200 rounded-xl px-4 py-2.5 text-sm focus:outline-indigo-500 font-semibold text-indigo-900"
                     />
                   </div>
                   <div>
@@ -2232,13 +2711,13 @@ export default function AdminDashboard({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">School Affiliation</label>
+                    <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Study HUB Center</label>
                     <select
                       value={newTeacherSchoolId}
                       onChange={e => setNewTeacherSchoolId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm focus:outline-indigo-500 font-semibold text-slate-700"
                     >
-                      <option value="">LMS Global (No specific school)</option>
+                      <option value="">Study HUB Main Center</option>
                       {schools.map(school => (
                         <option key={school.id} value={school.id}>
                           {school.name} ({school.code})
@@ -3036,7 +3515,7 @@ export default function AdminDashboard({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {students.filter(s => s.isSelfRegistered).map(s => {
-                    const targetBatchName = batches.find(b => b.id === s.batchId || b.studentIds.includes(s.id))?.name || "Unassigned Batch";
+                    const targetBatchName = (batches || []).find(b => b.id === s.batchId || (b.studentIds || []).includes(s.id))?.name || "Unassigned Batch";
                     return (
                       <div key={s.id} className="bg-white border border-indigo-50/80 p-4 rounded-xl flex items-start justify-between shadow-sm hover:border-indigo-200 transition">
                         <div className="space-y-1.5 min-w-0">
@@ -3138,29 +3617,32 @@ export default function AdminDashboard({
                 <table className="w-full text-left text-sm text-slate-600">
                   <thead className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase">
                     <tr>
-                      <th className="px-6 py-4">Student</th>
-                      <th className="px-6 py-4">Register Mail</th>
-                      <th className="px-6 py-4">Roll Code</th>
-                      <th className="px-6 py-4">Login Code</th>
-                      <th className="px-6 py-4 text-emerald-700">Fee Portal DOB</th>
-                      <th className="px-6 py-4">Enrolled Batches</th>
-                      <th className="px-6 py-4">Login Access Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
+                      <th className="px-5 py-3.5">Student</th>
+                      <th className="px-5 py-3.5">Register Mail</th>
+                      <th className="px-5 py-3.5">Roll Code</th>
+                      <th className="px-5 py-3.5">Login Code</th>
+                      <th className="px-5 py-3.5 text-emerald-700">Fee Portal DOB</th>
+                      <th className="px-5 py-3.5">Enrolled Batches</th>
+                      <th className="px-5 py-3.5">Enrollment Status</th>
+                      <th className="px-5 py-3.5 text-center">Student Enroll Management</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {students.map(s => {
-                      const enrolledCount = batches.filter(b => b.studentIds.includes(s.id)).length;
+                      const enrolledCount = (batches || []).filter(b => (b.studentIds || []).includes(s.id)).length;
+                      const liveFeedback = liveStudentAction[s.id];
+                      const isBlocked = s.isLocked || s.status === "Inactive" || s.enrollmentStatus === "Blocked";
+
                       return (
-                        <tr key={s.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-4 flex items-center space-x-3">
+                        <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3.5 flex items-center space-x-3">
                             <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center font-mono text-[10px] font-bold uppercase shrink-0">
                               {s.name ? s.name.substring(0, 2) : "ST"}
                             </div>
                             <div>
                               <span className="font-semibold text-slate-800 block leading-tight flex items-center gap-1">
                                 <span>{s.name}</span>
-                                {s.status === "Active" && (
+                                {s.status === "Active" && !s.isLocked && (
                                   <span className="text-sky-500 shrink-0 inline-flex" title="Active verified scholar">
                                     <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
                                       <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
@@ -3189,79 +3671,158 @@ export default function AdminDashboard({
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-xs font-mono text-slate-400">{s.email}</td>
-                          <td className="px-6 py-4 text-xs font-semibold text-slate-600 font-mono">{s.rollNo}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-5 py-3.5 text-xs font-mono text-slate-400">{s.email}</td>
+                          <td className="px-5 py-3.5 text-xs font-semibold text-slate-600 font-mono">{s.rollNo}</td>
+                          <td className="px-5 py-3.5">
                             <span className="text-xs px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold font-mono border border-indigo-100">
                               {s.password || "alex123"}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-5 py-3.5">
                             <span className="text-xs px-2.5 py-0.5 bg-emerald-50 text-emerald-800 rounded-md font-extrabold font-mono border border-emerald-100">
                               {s.dob || "12-11-2006"}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-5 py-3.5">
                             <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg font-bold">
                               {enrolledCount} active classes
                             </span>
                           </td>
-                          <td className="px-6 py-4">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextStatus = s.status === "Active" ? "Inactive" : "Active";
-                                if (onUpdateStudentStatus) {
-                                  onUpdateStudentStatus(s.id, nextStatus);
-                                }
-                              }}
-                              className={`text-[10px] px-2.5 py-1 rounded-full font-bold border cursor-pointer uppercase tracking-wider transition ${
-                                s.status === "Active"
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-205 hover:bg-emerald-100"
-                                  : "bg-amber-50 text-amber-700 border-amber-205 hover:bg-amber-100"
+                          <td className="px-5 py-3.5">
+                            <span
+                              className={`text-[10px] px-2.5 py-1 rounded-full font-bold border uppercase tracking-wider inline-flex items-center gap-1 ${
+                                isBlocked
+                                  ? "bg-rose-50 text-rose-700 border-rose-200"
+                                  : s.enrollmentStatus === "Un-Enrolled"
+                                  ? "bg-slate-100 text-slate-600 border-slate-200"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
                               }`}
-                              title={s.status === "Active" ? "Suspend login access" : "Activate & Verify student login access"}
                             >
-                              {s.status === "Active" ? "Verified & Active" : "Pending Verification"}
-                            </button>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isBlocked ? "bg-rose-500" : s.enrollmentStatus === "Un-Enrolled" ? "bg-slate-400" : "bg-emerald-500"}`} />
+                              {isBlocked ? "Blocked" : s.enrollmentStatus === "Un-Enrolled" ? "Un-Enrolled" : "Enrolled"}
+                            </span>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingStudent(s);
-                                setEditStudentName(s.name);
-                                setEditStudentEmail(s.email);
-                                setEditStudentRollNo(s.rollNo);
-                                setEditStudentPassword(s.password || "");
-                                setEditStudentSchool(s.schoolName || "");
-                                setEditStudentMobile(s.mobileNumber || "");
-                                setEditStudentBatchId(s.batchId || "");
-                                setEditStudentDob(s.dob || "12-11-2006");
-                              }}
-                              className="text-slate-400 hover:text-indigo-600 p-1.5 transition-colors inline-flex mr-1 cursor-pointer"
-                              title="Edit complete student credentials"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedQRStudent(s)}
-                              className="text-indigo-505 hover:text-indigo-700 p-1.5 transition-colors inline-flex mr-1 cursor-pointer"
-                              title="Print student QR registration card"
-                            >
-                              <QrCode className="w-4 h-4 text-indigo-500" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Deregister student "${s.name}"? This removes them from all batch enrollments.`)) {
-                                  onDeleteStudent(s.id);
-                                }
-                              }}
-                              className="text-slate-300 hover:text-red-500 p-1.5 transition-colors inline-flex cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <td className="px-5 py-3.5">
+                            {liveFeedback ? (
+                              <div className="flex items-center justify-center py-1">
+                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-lg shadow-slate-900/20 border border-slate-700 animate-pulse">
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                  </span>
+                                  <span className="text-white text-[11px] font-semibold tracking-tight">{liveFeedback.message}</span>
+                                  <span className="text-[9px] bg-indigo-500/30 text-indigo-200 px-1.5 py-0.5 rounded font-mono border border-indigo-400/30">
+                                    Live (3s)
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                {/* Student Block */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextLocked = !isBlocked;
+                                    const nextStatus = nextLocked ? "Inactive" : "Active";
+                                    if (onUpdateStudentLock) onUpdateStudentLock(s.id, nextLocked);
+                                    if (onUpdateStudentStatus) onUpdateStudentStatus(s.id, nextStatus);
+                                    if (onUpdateStudentDetails) {
+                                      onUpdateStudentDetails(s.id, {
+                                        isLocked: nextLocked,
+                                        status: nextStatus,
+                                        enrollmentStatus: nextLocked ? "Blocked" : "Enrolled",
+                                      });
+                                    }
+                                    triggerLiveStudentFeedback(
+                                      s.id,
+                                      "block",
+                                      nextLocked ? `Blocked ${s.name}` : `Unblocked ${s.name}`
+                                    );
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-sm ${
+                                    isBlocked
+                                      ? "bg-amber-500 text-white hover:bg-amber-600"
+                                      : "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
+                                  }`}
+                                  title={isBlocked ? "Unblock student access" : "Block student"}
+                                >
+                                  <Ban className="w-3 h-3 shrink-0" />
+                                  <span>{isBlocked ? "Unblock" : "Student Block"}</span>
+                                </button>
+
+                                {/* Un Enroll */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (onUnenrollStudent) {
+                                      onUnenrollStudent(s.id);
+                                    } else if (onUpdateStudentDetails) {
+                                      onUpdateStudentDetails(s.id, {
+                                        batchId: "",
+                                        batchName: "",
+                                        enrollmentStatus: "Un-Enrolled",
+                                      });
+                                    }
+                                    triggerLiveStudentFeedback(s.id, "unenroll", `Un-Enrolled ${s.name}`);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all cursor-pointer shadow-sm"
+                                  title="Un-Enroll student from classes"
+                                >
+                                  <UserMinus className="w-3 h-3 shrink-0" />
+                                  <span>Un Enroll</span>
+                                </button>
+
+                                {/* Edit Student Enroll */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingStudent(s);
+                                    setEditStudentName(s.name);
+                                    setEditStudentEmail(s.email);
+                                    setEditStudentRollNo(s.rollNo);
+                                    setEditStudentPassword(s.password || "");
+                                    setEditStudentSchool(s.schoolName || "");
+                                    setEditStudentMobile(s.mobileNumber || "");
+                                    setEditStudentBatchId(s.batchId || "");
+                                    setEditStudentDob(s.dob || "12-11-2006");
+                                    triggerLiveStudentFeedback(s.id, "edit", `Editing Enroll: ${s.name}`);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-all cursor-pointer shadow-sm"
+                                  title="Edit student enrollment credentials"
+                                >
+                                  <Edit3 className="w-3 h-3 shrink-0" />
+                                  <span>Edit Enroll</span>
+                                </button>
+
+                                {/* Delete */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Permanently delete student "${s.name}"?`)) {
+                                      triggerLiveStudentFeedback(s.id, "delete", `Deleted ${s.name}`);
+                                      setTimeout(() => {
+                                        onDeleteStudent(s.id);
+                                      }, 600);
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white transition-all cursor-pointer shadow-sm"
+                                  title="Delete student from database"
+                                >
+                                  <Trash2 className="w-3 h-3 shrink-0" />
+                                  <span>Delete</span>
+                                </button>
+
+                                {/* QR Card */}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedQRStudent(s)}
+                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                  title="Print student QR registration card"
+                                >
+                                  <QrCode className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -3277,7 +3838,18 @@ export default function AdminDashboard({
         {activeTab === "announcements" && (
           <div className="space-y-6 text-left">
             <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-              <h4 className="text-sm font-bold text-slate-800 tracking-tight uppercase mb-4">Post Global Noticeboard Circular</h4>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-bold text-slate-800 tracking-tight uppercase">Post Global Noticeboard Circular</h4>
+                <button
+                  type="button"
+                  onClick={playAnnouncementSound}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200 transition-all cursor-pointer"
+                  title="Click to test the real-time announcement alert sound"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Test Chime 🔔</span>
+                </button>
+              </div>
               <form onSubmit={handleAddAnnouncement} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Subject Heading</label>
@@ -5538,6 +6110,509 @@ export default function AdminDashboard({
           </div>
         )}
 
+        {/* -------------------- STUDENT ORDERS & OFFLINE PAYMENT CONTROL -------------------- */}
+        {activeTab === "orders" && (
+          <div className="space-y-6 text-left animate-fadeIn">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="text-lg font-black uppercase tracking-wider flex items-center space-x-2">
+                  <ShoppingBag className="w-5 h-5 text-amber-200" />
+                  <span>Student Orders & Offline Payment Control</span>
+                </h3>
+                <p className="text-xs text-amber-100 max-w-2xl font-sans">
+                  Manage course registrations, verify offline center fee payments, record admin comments, create orders on student demand, and print tax receipts/PDFs.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setIsCreateOrderModalOpen(true)}
+                  className="px-4 py-2.5 bg-amber-200 hover:bg-white text-amber-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center space-x-2 shadow-sm shrink-0"
+                >
+                  <Plus className="w-4 h-4 text-amber-900" />
+                  <span>Create Order for Student</span>
+                </button>
+
+                <div className="bg-black/20 p-2.5 px-3.5 rounded-xl border border-white/10 text-xs">
+                  <span className="block text-[9px] uppercase font-bold text-amber-200">Pending Center Payments</span>
+                  <span className="text-base font-black font-mono">
+                    {(storeOrders || []).filter(o => o.status === "Pending Payment at Center").length} Orders
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Filters & Search */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto no-scrollbar">
+                <button
+                  onClick={() => setOrderFilter("All")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    orderFilter === "All" ? "bg-amber-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  All Orders ({(storeOrders || []).length})
+                </button>
+                <button
+                  onClick={() => setOrderFilter("Pending")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    orderFilter === "Pending" || orderFilter === "Pending Admin Verification" ? "bg-amber-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Pending Confirmation ({(storeOrders || []).filter(o => o.status === "Pending Confirmation" || o.status === "Pending Admin Verification" || o.status === "Pending Payment at Center" || o.status === "Placed" || o.status === "Pending").length})
+                </button>
+                <button
+                  onClick={() => setOrderFilter("Confirmed")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    orderFilter === "Confirmed" || orderFilter === "Verified & Approved" || orderFilter === "Payment Confirmed / Active" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Confirmed ({(storeOrders || []).filter(o => o.status === "Confirmed" || o.status === "Payment Confirmed / Active" || o.status === "Verified & Approved" || o.status === "Active").length})
+                </button>
+                <button
+                  onClick={() => setOrderFilter("Cancelled")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    orderFilter === "Cancelled" ? "bg-rose-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Cancelled
+                </button>
+              </div>
+
+              <div className="relative w-full md:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search student, order ID, or center..."
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-amber-600 font-sans"
+                />
+              </div>
+            </div>
+
+            {/* Orders List */}
+            {filteredOrders.length === 0 ? (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
+                <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="font-bold text-slate-700">No Orders Found</h4>
+                <p className="text-xs text-slate-400">Student course purchases and offline center registration orders will appear here.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredOrders.map((order) => (
+                  <div key={order.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-slate-100 pb-3">
+                      <div className="flex items-center space-x-3">
+                        <span className="font-mono text-xs font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                          {order.id}
+                        </span>
+                        <span className="text-xs text-slate-400 font-medium">Order Date: {order.orderDate}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {recentlyUpdatedOrderIds[order.id] && (
+                          <span className="inline-flex items-center gap-1 bg-amber-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-xs animate-bounce">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                            ⚡ Status Changed Live!
+                          </span>
+                        )}
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                          order.status === "Payment Confirmed / Active" || order.status === "Confirmed"
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            : order.status === "Pending Payment at Center"
+                            ? "bg-amber-100 text-amber-800 border border-amber-200"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                          {order.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                      {/* Student Details */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Student Info</span>
+                        <p className="font-extrabold text-slate-900">{order.studentName}</p>
+                        <p className="text-slate-600">📱 {order.studentMobile}</p>
+                        <p className="text-slate-600 truncate">✉️ {order.studentEmail}</p>
+                      </div>
+
+                      {/* Order Items */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Ordered Items & Total</span>
+                        {(order.items || []).map((it, idx) => (
+                          <div key={idx} className="font-bold text-slate-800">
+                            {it.itemName}
+                          </div>
+                        ))}
+                        <div className="pt-1.5 border-t border-slate-200/60 mt-1 flex justify-between items-center">
+                          <span className="text-slate-500 font-medium">Fee Amount:</span>
+                          <span className="font-mono font-black text-emerald-600 text-sm">₹{(order.totalAmount ?? 0).toLocaleString("en-IN")}</span>
+                        </div>
+                      </div>
+
+                      {/* Center Details */}
+                      <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Payment Method & Center</span>
+                        <p className="font-bold text-amber-800">🏢 {order.centerName || "Study Hub Physical Center"}</p>
+                        <p className="text-slate-600 text-[11px]">{order.centerAddress || order.shippingAddress || "Offline Payment at Center"}</p>
+                        <p className="text-slate-500 text-[10px]">Method: {order.paymentMethod}</p>
+                      </div>
+                    </div>
+
+                    {/* Admin Comment & Quick Action Controls */}
+                    <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200/80 space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="w-full sm:w-auto flex-1">
+                          <label className="block text-[11px] font-bold text-amber-950 mb-1">
+                            Center / Admin Payment Verification Comment:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Cash fee ₹4,999 received at Bhopal Center. Verified by Admin."
+                            value={editingComments[order.id] !== undefined ? editingComments[order.id] : (order.adminComment || "")}
+                            onChange={(e) => setEditingComments(prev => ({ ...prev, [order.id]: e.target.value }))}
+                            className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 text-slate-800 font-sans"
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-auto">
+                          <button
+                            onClick={() => handlePrintOrderReceipt(order)}
+                            className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer"
+                            title="Print Tax Invoice or Save as PDF"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Print / PDF</span>
+                          </button>
+
+                          {order.status !== "Payment Confirmed / Active" && order.status !== "Confirmed" && order.status !== "Verified & Approved" ? (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "Confirmed")}
+                              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer hover:scale-105 transition-all"
+                              title="Confirm Order & Automatically Grant Course Access to Student"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Confirm Order</span>
+                            </button>
+                          ) : (
+                            <span className="px-3 py-2 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-xl border border-emerald-200 flex items-center space-x-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Confirmed (Course Active)</span>
+                            </span>
+                          )}
+
+                          {order.status !== "Cancelled" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, "Cancelled")}
+                              className="px-3 py-2 bg-rose-100 text-rose-700 hover:bg-rose-200 font-bold text-xs rounded-xl cursor-pointer"
+                            >
+                              Reject / Cancel
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleDeleteOrder(order.id, order.studentName)}
+                            className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl transition-all border border-rose-200 flex items-center space-x-1 cursor-pointer"
+                            title="Permanently Delete Order"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {order.paymentConfirmedAt && (
+                        <p className="text-[11px] text-emerald-700 font-medium">
+                          ✓ Verified & Course Access Granted on: {order.paymentConfirmedAt}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* -------------------- PHYSICAL STUDY HUB CENTERS MANAGEMENT -------------------- */}
+        {activeTab === "centers" && (
+          <div className="space-y-6 text-left animate-fadeIn">
+            {/* Sticky Top Header with Fixed Add Physical Center Button & Controls */}
+            <div className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-md pt-1 pb-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2.5">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                {/* Fixed Top-Left Add Physical Center Button */}
+                <button
+                  onClick={handleOpenAddCenter}
+                  className="px-4 py-2.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/20 flex items-center space-x-2 shrink-0 cursor-pointer transition-all"
+                  title="Add New Offline Physical Center"
+                >
+                  <Plus className="w-4 h-4 text-white" />
+                  <span>Add Physical Center</span>
+                </button>
+              </div>
+
+              {/* Header Search Filter Bar */}
+              <div className="flex items-center space-x-2 flex-1 sm:flex-initial min-w-[220px]">
+                <div className="relative w-full sm:w-80">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search by center name, city, or manager..."
+                    value={centerSearch}
+                    onChange={(e) => setCenterSearch(e.target.value)}
+                    className="w-full bg-white text-slate-900 pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-emerald-600 font-medium shadow-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Centers Grid */}
+            {(studyHubCenters || []).filter(c => 
+              !centerSearch ||
+              c.name.toLowerCase().includes(centerSearch.toLowerCase()) ||
+              c.city.toLowerCase().includes(centerSearch.toLowerCase()) ||
+              c.managerName.toLowerCase().includes(centerSearch.toLowerCase()) ||
+              c.address.toLowerCase().includes(centerSearch.toLowerCase())
+            ).length === 0 ? (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center space-y-3">
+                <SchoolIcon className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="font-bold text-slate-700">No Physical Centers Found</h4>
+                <p className="text-xs text-slate-400">Click "Add Physical Center" in the top header to add new offline study centers.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {(studyHubCenters || []).filter(c => 
+                  !centerSearch ||
+                  c.name.toLowerCase().includes(centerSearch.toLowerCase()) ||
+                  c.city.toLowerCase().includes(centerSearch.toLowerCase()) ||
+                  c.managerName.toLowerCase().includes(centerSearch.toLowerCase()) ||
+                  c.address.toLowerCase().includes(centerSearch.toLowerCase())
+                ).map((center) => (
+                  <div key={center.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                        <div>
+                          <span className="text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {center.city} Center
+                          </span>
+                          <h4 className="font-extrabold text-slate-900 text-sm mt-1 leading-snug">
+                            {center.name}
+                          </h4>
+                        </div>
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <button
+                            onClick={() => handleOpenEditCenter(center)}
+                            className="p-1.5 bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-800 rounded-lg transition-all cursor-pointer"
+                            title="Edit Center Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCenter(center.id)}
+                            className="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 rounded-lg transition-all cursor-pointer"
+                            title="Delete Center"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 text-xs text-slate-600">
+                        <div className="flex items-start space-x-2">
+                          <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                          <p className="line-clamp-2 leading-relaxed">{center.address}, Pin: {center.pincode}</p>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <PhoneCall className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="font-mono">{center.contactNumber}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">{center.email}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{center.operatingHours}</span>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-[11px]">
+                          <span className="text-slate-400 font-medium">Center Head:</span>
+                          <span className="font-bold text-slate-800">{center.managerName || "Admin Managed"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(center.mapQuery || (center.name + " " + center.city))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs py-2 rounded-xl text-center border border-slate-200 transition-all flex items-center justify-center space-x-1.5"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>View Location on Map</span>
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ADD / EDIT CENTER MODAL */}
+            {isAddCenterModalOpen && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-scaleIn border border-slate-100 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 className="font-black text-slate-900 text-base flex items-center space-x-2 uppercase tracking-wide">
+                      <SchoolIcon className="w-5 h-5 text-emerald-600" />
+                      <span>{editingCenter ? "Edit Study Hub Center" : "Add New Physical Center"}</span>
+                    </h3>
+                    <button
+                      onClick={() => setIsAddCenterModalOpen(false)}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveCenter} className="space-y-4 text-xs font-sans">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Center Name *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Study Hub MP - Bhopal Main Branch"
+                        value={centerForm.name}
+                        onChange={(e) => setCenterForm(p => ({ ...p, name: e.target.value }))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">City *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Bhopal"
+                          value={centerForm.city}
+                          onChange={(e) => setCenterForm(p => ({ ...p, city: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Pincode *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. 462011"
+                          value={centerForm.pincode}
+                          onChange={(e) => setCenterForm(p => ({ ...p, pincode: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Full Street Address *</label>
+                      <textarea
+                        required
+                        rows={2}
+                        placeholder="e.g. Plot 42, MP Nagar Zone 1, Near DB Mall, Bhopal"
+                        value={centerForm.address}
+                        onChange={(e) => setCenterForm(p => ({ ...p, address: e.target.value }))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Contact Phone *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. +91 755 4238900"
+                          value={centerForm.contactNumber}
+                          onChange={(e) => setCenterForm(p => ({ ...p, contactNumber: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Contact Email *</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="e.g. bhopal.center@studyhub.edu"
+                          value={centerForm.email}
+                          onChange={(e) => setCenterForm(p => ({ ...p, email: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Operating Hours</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 09:00 AM - 07:00 PM (Mon-Sat)"
+                          value={centerForm.operatingHours}
+                          onChange={(e) => setCenterForm(p => ({ ...p, operatingHours: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Center Manager Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Er. Rajesh Sharma"
+                          value={centerForm.managerName}
+                          onChange={(e) => setCenterForm(p => ({ ...p, managerName: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Google Maps Search Query (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. MP Nagar Zone 1 Bhopal"
+                        value={centerForm.mapQuery}
+                        onChange={(e) => setCenterForm(p => ({ ...p, mapQuery: e.target.value }))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-emerald-600"
+                      />
+                    </div>
+
+                    <div className="flex justify-end space-x-3 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddCenterModalOpen(false)}
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                      >
+                        {editingCenter ? "Save Changes" : "Add Center"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* -------------------- WEB & ACCESS CONTROLS Central Dashboard -------------------- */}
         {activeTab === "website-control" && (
           <div className="space-y-6 text-left">
@@ -6495,7 +7570,7 @@ export default function AdminDashboard({
           </div>
         )}
 
-        {activeTab === "logins" && (() => {
+        {(activeTab === "logins" || activeTab === "create-user") && (() => {
           const combinedUsers = [
             ...(admins || []).map(a => ({
               id: a.id,
@@ -6593,44 +7668,6 @@ export default function AdminDashboard({
 
           return (
             <div className="space-y-6">
-              {/* Database Overview Banner */}
-              <div className="bg-slate-900 rounded-3xl p-6 text-white relative overflow-hidden shadow-lg">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-2xl -mr-20 -mt-20" />
-                <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-blue-500/10 rounded-full blur-2xl" />
-                
-                <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h4 className="text-lg font-black tracking-tight uppercase flex items-center space-x-2">
-                      <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                      <span>User Login Database Console</span>
-                    </h4>
-                    <p className="text-xs text-indigo-200 mt-1 max-w-xl">
-                      Centralized administrative storage. Add master logins by roles, change security keywords, deactivate accounts temporarily or purge profiles instantly.
-                    </p>
-                  </div>
-                  <div className="flex space-x-3 text-center self-start md:self-auto uppercase tracking-widest text-[10px]">
-                    <div className="bg-slate-800/80 rounded-2xl px-3 py-2 border border-slate-700/50">
-                      <span className="block text-indigo-400 font-extrabold text-base leading-none font-mono">
-                        {(admins || []).length}
-                      </span>
-                      <span className="text-slate-400 text-[9px] mt-0.5 block">Admins</span>
-                    </div>
-                    <div className="bg-slate-800/80 rounded-2xl px-3 py-2 border border-slate-700/50">
-                      <span className="block text-emerald-400 font-extrabold text-base leading-none font-mono">
-                        {teachers.length}
-                      </span>
-                      <span className="text-slate-400 text-[9px] mt-0.5 block">Teachers</span>
-                    </div>
-                    <div className="bg-slate-800/80 rounded-2xl px-3 py-2 border border-slate-700/50">
-                      <span className="block text-amber-400 font-extrabold text-base leading-none font-mono">
-                        {students.length}
-                      </span>
-                      <span className="text-slate-400 text-[9px] mt-0.5 block">Students</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Main Content Layout Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
@@ -6646,13 +7683,12 @@ export default function AdminDashboard({
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                         Authorization Role
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
-                        {(["student", "teacher", "professor", "admin", "feemanager", "admission", "verifier"] as const).map(roleOpt => {
+                      <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+                        {(["student", "teacher", "admin"] as const).map(roleOpt => {
                           let label = roleOpt as string;
-                          if (roleOpt === "feemanager") label = "Fee Mgr";
-                          if (roleOpt === "admission") label = "Admission";
-                          if (roleOpt === "verifier") label = "Verifier";
-                          if (roleOpt === "professor") label = "Professor";
+                          if (roleOpt === "admin") label = "Admin";
+                          if (roleOpt === "teacher") label = "Teacher";
+                          if (roleOpt === "student") label = "Student";
 
                           return (
                             <button
@@ -6744,12 +7780,77 @@ export default function AdminDashboard({
                       </div>
                     </div>
 
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                        <input
+                          type="email"
+                          placeholder="e.g. user@study.edu (optional)"
+                          value={credsEmail}
+                          onChange={e => setCredsEmail(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-indigo-500 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Mobile Phone Number
+                      </label>
+                      <div className="relative">
+                        <PhoneCall className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="e.g. 9876543210 (optional)"
+                          value={credsMobile}
+                          onChange={e => setCredsMobile(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-indigo-500 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    {schools.length > 0 && (
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Affiliated School / Campus
+                        </label>
+                        <select
+                          value={credsSchoolId}
+                          onChange={e => setCredsSchoolId(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-indigo-500 font-medium text-slate-800"
+                        >
+                          <option value="">-- Main Coaching Hub (Default) --</option>
+                          {schools.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {credsRole === "teacher" && (
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Teaching Subject / Specialization
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Mathematics & Science"
+                          value={credsSpecialization}
+                          onChange={e => setCredsSpecialization(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-indigo-500 font-medium"
+                        />
+                      </div>
+                    )}
+
                     <button
                       type="submit"
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 transition-colors text-white font-bold text-[10px] uppercase tracking-wider py-3.5 px-4 rounded-xl flex items-center justify-center space-x-2 shadow-xs cursor-pointer"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 transition-all text-white font-black text-xs uppercase tracking-wider py-3.5 px-4 rounded-xl flex items-center justify-center space-x-2 shadow-md cursor-pointer hover:shadow-lg"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>Commit Into Login Vault</span>
+                      <UserPlus className="w-4 h-4" />
+                      <span>Create User Account & Sync Live</span>
                     </button>
                   </form>
                 </div>
@@ -6779,11 +7880,7 @@ export default function AdminDashboard({
                         <option value="all">Roles: All</option>
                         <option value="admin">Roles: Admins</option>
                         <option value="teacher">Roles: Teachers</option>
-                        <option value="professor">Roles: Professors</option>
                         <option value="student">Roles: Students</option>
-                        <option value="feemanager">Roles: Fee Managers</option>
-                        <option value="admission">Roles: Admissions Desk</option>
-                        <option value="verifier">Roles: Verifiers</option>
                       </select>
 
                       <select
@@ -7095,15 +8192,15 @@ export default function AdminDashboard({
 
                   {/* Joined Cohort details */}
                   <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 text-left space-y-2 col-span-2">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Cohort Enrolments ({batches.filter(b => b.studentIds.includes(lastScannedAdminStudent.id)).length})</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Cohort Enrolments ({(batches || []).filter(b => (b.studentIds || []).includes(lastScannedAdminStudent.id)).length})</span>
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      {batches.filter(b => b.studentIds.includes(lastScannedAdminStudent.id)).map(b => (
+                      {(batches || []).filter(b => (b.studentIds || []).includes(lastScannedAdminStudent.id)).map(b => (
                         <span key={b.id} className="bg-white border border-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1">
                           <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full inline-block" />
                           {b.name} ({b.code})
                         </span>
                       ))}
-                      {batches.filter(b => b.studentIds.includes(lastScannedAdminStudent.id)).length === 0 && (
+                      {(batches || []).filter(b => (b.studentIds || []).includes(lastScannedAdminStudent.id)).length === 0 && (
                         <p className="text-[10px] text-slate-400 italic">No historical active cohorts registered for this candidate.</p>
                       )}
                     </div>
@@ -7257,74 +8354,197 @@ export default function AdminDashboard({
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left sidebar student tracker */}
               <div className="lg:col-span-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-150/40 h-fit space-y-3 flex flex-col">
-                <h5 className="text-[10px] font-black text-slate-450 uppercase tracking-widest">
-                  Students Active Pipelines
-                </h5>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-[10px] font-black text-slate-450 uppercase tracking-widest">
+                    Students Active Pipelines
+                  </h5>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-200/60 px-2 py-0.5 rounded-full font-mono">
+                    {students.length} Total
+                  </span>
+                </div>
+
+                {/* Student Search Input & Order Status Filter */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={supportSearchInput}
+                      onChange={(e) => setSupportSearchInput(e.target.value)}
+                      placeholder="Search student name, roll, or email..."
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs font-medium text-slate-800 focus:outline-rose-500"
+                    />
+                  </div>
+
+                  {/* Filter by Order Status or Messages */}
+                  <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200">
+                    <Filter className="w-3.5 h-3.5 text-rose-500 shrink-0 ml-1" />
+                    <select
+                      value={supportOrderStatusFilter}
+                      onChange={(e) => setSupportOrderStatusFilter(e.target.value)}
+                      className="w-full bg-transparent text-[11px] font-bold text-slate-700 focus:outline-none cursor-pointer"
+                    >
+                      <option value="all">All Conversations ({students.length})</option>
+                      <option value="has_messages">💬 Active Support Messages</option>
+                      <option value="has_orders">📦 Students with Store Orders</option>
+                      <option value="Pending">⏳ Pending Order Status</option>
+                      <option value="Processing">⚙️ Processing Order Status</option>
+                      <option value="Shipped">🚚 Shipped Order Status</option>
+                      <option value="Delivered">✅ Delivered Order Status</option>
+                      <option value="Cancelled">❌ Cancelled Order Status</option>
+                    </select>
+                  </div>
+                </div>
 
                 <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                  {students.map(std => {
-                    const hasMessages = supportMessages.some(m => m.studentId === std.id);
-                    const msgCount = supportMessages.filter(m => m.studentId === std.id).length;
-                    const isSelected = selectedChatStudentId === std.id;
+                  {students
+                    .filter(s => {
+                      const searchMatch = 
+                        s.name.toLowerCase().includes(supportSearchInput.toLowerCase()) || 
+                        s.rollNo.toLowerCase().includes(supportSearchInput.toLowerCase()) ||
+                        (s.email && s.email.toLowerCase().includes(supportSearchInput.toLowerCase()));
+                      if (!searchMatch) return false;
 
-                    return (
-                      <button
-                        key={std.id}
-                        type="button"
-                        onClick={() => setSelectedChatStudentId(std.id)}
-                        className={`w-full text-left p-3 rounded-xl border text-xs transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                          isSelected 
-                            ? "bg-rose-600 text-white border-rose-700 font-bold scale-[1.01] shadow-xs" 
-                            : "bg-white hover:bg-slate-50 text-slate-700 border-slate-100/80"
-                        }`}
-                      >
-                        <div className="truncate flex-1 text-left">
-                          <p className="font-extrabold truncate">{std.name}</p>
-                          <p className={`text-[10px] truncate ${isSelected ? "text-rose-200" : "text-slate-450"}`}>
-                            Roll: {std.rollNo} • Batches: {batches.filter(b => b.studentIds.includes(std.id)).map(b => b.code).join(", ") || "None"}
-                          </p>
-                        </div>
-                        <div className="flex items-center shrink-0">
-                          {hasMessages ? (
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
-                              isSelected ? "bg-rose-800 text-white" : "bg-rose-100 text-rose-700"
-                            }`}>
-                              {msgCount}
-                            </span>
-                          ) : (
-                            <span className="text-[9px] text-slate-400 italic">No msgs</span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
+                      if (supportOrderStatusFilter === "all") return true;
+                      if (supportOrderStatusFilter === "has_messages") {
+                        return supportMessages.some(m => m.studentId === s.id);
+                      }
+                      const stdOrders = storeOrders.filter(o => o.studentId === s.id || (s.email && o.studentEmail === s.email));
+                      if (supportOrderStatusFilter === "has_orders") {
+                        return stdOrders.length > 0;
+                      }
+                      return stdOrders.some(o => o.status === supportOrderStatusFilter);
+                    })
+                    .map(std => {
+                      const hasMessages = supportMessages.some(m => m.studentId === std.id);
+                      const msgCount = supportMessages.filter(m => m.studentId === std.id).length;
+                      const isSelected = selectedChatStudentId === std.id;
+
+                      return (
+                        <button
+                          key={std.id}
+                          type="button"
+                          onClick={() => setSelectedChatStudentId(std.id)}
+                          className={`w-full text-left p-3 rounded-xl border text-xs transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                            isSelected 
+                              ? "bg-rose-600 text-white border-rose-700 font-bold scale-[1.01] shadow-xs" 
+                              : "bg-white hover:bg-slate-50 text-slate-700 border-slate-100/80"
+                          }`}
+                        >
+                          <div className="truncate flex-1 text-left">
+                            <p className="font-extrabold truncate">{std.name}</p>
+                            <p className={`text-[10px] truncate ${isSelected ? "text-rose-200" : "text-slate-450"}`}>
+                              Roll: {std.rollNo} • Batches: {(batches || []).filter(b => (b.studentIds || []).includes(std.id)).map(b => b.code).join(", ") || "None"}
+                            </p>
+                          </div>
+                          <div className="flex items-center shrink-0">
+                            {hasMessages ? (
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
+                                isSelected ? "bg-rose-800 text-white" : "bg-rose-100 text-rose-700"
+                              }`}>
+                                {msgCount}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-slate-400 italic">No msgs</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 
               {/* Right panel correspondence */}
-              <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-120 shadow-xs overflow-hidden flex flex-col h-[520px]">
+              <div className="lg:col-span-8 bg-white rounded-2xl border border-slate-120 shadow-xs overflow-hidden flex flex-col h-[560px]">
                 {selectedChatStudentId ? (
                   (() => {
                     const targetStudent = students.find(s => s.id === selectedChatStudentId);
                     const threadMsgs = supportMessages.filter(m => m.studentId === selectedChatStudentId);
+                    const studentOrders = storeOrders.filter(o => o.studentId === targetStudent?.id || o.studentEmail === targetStudent?.email);
 
                     return (
                       <>
-                        <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                        <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
                           <div className="text-left">
-                            <span className="text-[10px] bg-slate-200 font-bold px-1 py-0.5 rounded text-slate-650 font-mono">
+                            <span className="text-[10px] bg-slate-200 font-bold px-1.5 py-0.5 rounded text-slate-650 font-mono">
                               #{targetStudent?.id}
                             </span>
                             <h5 className="font-extrabold text-xs text-slate-800 inline-block ml-2 uppercase font-sans">
                               {targetStudent?.name} ({targetStudent?.rollNo})
                             </h5>
+                            {targetStudent?.mobileNumber && (
+                              <span className="text-[10px] text-slate-500 font-mono ml-2">
+                                📞 {targetStudent.mobileNumber}
+                              </span>
+                            )}
                           </div>
-                          <span className="bg-rose-100 text-rose-800 font-black text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider">
-                            ROOT OVERWATCH
-                          </span>
+
+                          <div className="flex items-center space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSupportChatThread(selectedChatStudentId)}
+                              className="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 font-extrabold text-[10px] px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1 shadow-xs"
+                              title="Permanently delete entire chat thread"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete Chat Thread</span>
+                            </button>
+                            <span className="bg-rose-100 text-rose-800 font-black text-[9px] px-2.5 py-1 rounded-full uppercase tracking-wider">
+                              ROOT OVERWATCH
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/25">
+                        {/* Student Store Orders Quick Panel */}
+                        {studentOrders.length > 0 && (
+                          <div className="bg-slate-100/70 p-2.5 border-b border-slate-200 space-y-2 text-xs shrink-0">
+                            <div className="flex items-center justify-between font-extrabold text-slate-700 text-[10px] uppercase tracking-wider">
+                              <span className="flex items-center gap-1">
+                                <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Student Store Orders ({studentOrders.length})</span>
+                              </span>
+                              <span className="text-slate-400 font-normal">Admin can update address or cancel order</span>
+                            </div>
+
+                            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                              {studentOrders.map(ord => (
+                                <div key={ord.id} className="bg-white p-2 rounded-xl border border-slate-200 shrink-0 text-[11px] space-y-1 shadow-2xs min-w-[220px]">
+                                  <div className="flex items-center justify-between font-bold">
+                                    <span className="font-mono text-indigo-600">#{ord.id}</span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
+                                      ord.status === "Cancelled" ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                                    }`}>
+                                      {ord.status}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-600 truncate">{ord.items?.[0]?.itemName || "Store Item"}</p>
+                                  <p className="text-[10px] text-slate-400 truncate">Address: {ord.shippingAddress || "Not provided"}</p>
+                                  
+                                  {ord.status !== "Cancelled" && (
+                                    <div className="flex items-center gap-1 pt-1 border-t border-slate-100">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminUpdateOrderAddress(ord.id, ord.shippingAddress || "")}
+                                        className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded border border-indigo-200 cursor-pointer"
+                                      >
+                                        Edit Addr
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminCancelOrder(ord.id)}
+                                        className="px-2 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[10px] font-bold rounded border border-rose-200 cursor-pointer"
+                                      >
+                                        Cancel Order
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/25">
                           {threadMsgs.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-center space-y-2 p-6">
                               <MessageSquare className="w-8 h-8 text-slate-300" />
@@ -7343,13 +8563,13 @@ export default function AdminDashboard({
                                       {msg.senderName} ({msg.senderRole.toUpperCase()})
                                     </span>
                                     <span className="text-[8px] text-slate-350 font-mono">
-                                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      {msg.timestamp}
                                     </span>
                                   </div>
-                                  <div className={`p-3.5 rounded-2xl text-xs max-w-md ${
+                                  <div className={`p-3 rounded-2xl text-xs max-w-md ${
                                     isStaffSender 
                                       ? "bg-rose-600 text-white rounded-tr-none shadow-xs" 
-                                      : "bg-white text-slate-850 rounded-tl-none border border-slate-100 shadow-xs"
+                                      : "bg-white text-slate-850 rounded-tl-none border border-slate-200 shadow-xs"
                                   }`}>
                                     <p className="leading-relaxed whitespace-pre-line font-medium">{msg.content}</p>
                                   </div>
@@ -7357,29 +8577,54 @@ export default function AdminDashboard({
                               );
                             })
                           )}
+                          <div ref={adminChatEndRef} />
+                        </div>
+
+                        {/* Quick Reply Templates Bar */}
+                        <div className="px-3 py-2 bg-slate-50 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[10px] font-bold shrink-0">
+                          <span className="text-slate-400 uppercase tracking-wider shrink-0 font-mono text-[9px] mr-1 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-amber-500" /> Quick Templates:
+                          </span>
+                          {[
+                            { label: "🚚 Dispatch Update", text: "[Admin Support] Your order has been dispatched! Tracking details will be updated shortly." },
+                            { label: "📍 Address Updated", text: "[Admin Support] Your delivery address update request has been processed successfully." },
+                            { label: "💳 Payment Confirmed", text: "[Admin Support] We have verified your payment receipt. Your order is now processing." },
+                            { label: "❌ Cancellation Ack", text: "[Admin Support] Your order cancellation request has been accepted. Refund if applicable will be processed." },
+                            { label: "💬 Query In Progress", text: "[Admin Support] Hello! We received your query. Our support team is looking into this." }
+                          ].map((tpl, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setAdminReplyText(tpl.text)}
+                              className="bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-300 px-2.5 py-1 rounded-lg transition-all cursor-pointer shrink-0 shadow-2xs active:scale-95 text-[10px]"
+                              title="Click to load response template"
+                            >
+                              {tpl.label}
+                            </button>
+                          ))}
                         </div>
 
                         <form 
                           onSubmit={(e) => {
                             e.preventDefault();
-                            const form = e.currentTarget;
-                            const input = form.elements.namedItem("reply_content") as HTMLInputElement;
-                            if (!input || !input.value.trim() || !onSendSupportMessage) return;
-                            onSendSupportMessage(input.value.trim(), selectedChatStudentId);
-                            input.value = "";
+                            if (!adminReplyText.trim() || !onSendSupportMessage) return;
+                            onSendSupportMessage(adminReplyText.trim(), selectedChatStudentId);
+                            setAdminReplyText("");
                           }} 
-                          className="p-4 border-t border-slate-100 bg-white flex items-center gap-3"
+                          className="p-3 border-t border-slate-100 bg-white flex items-center gap-3"
                         >
                           <input 
                             name="reply_content"
                             type="text"
+                            value={adminReplyText}
+                            onChange={(e) => setAdminReplyText(e.target.value)}
                             placeholder="Write administrative support reply to student..."
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-rose-500 font-medium"
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-rose-500 font-medium"
                             required
                           />
                           <button 
                             type="submit" 
-                            className="bg-rose-600 hover:bg-slate-900 text-white font-extrabold text-xs uppercase tracking-widest px-5 py-3 rounded-xl transition-all shrink-0 cursor-pointer flex items-center space-x-2 shadow-xs"
+                            className="bg-rose-600 hover:bg-slate-900 text-white font-extrabold text-xs uppercase tracking-widest px-5 py-2.5 rounded-xl transition-all shrink-0 cursor-pointer flex items-center space-x-2 shadow-xs"
                           >
                             <Send className="w-3.5 h-3.5" />
                             <span>Dispatch</span>
@@ -8077,8 +9322,8 @@ export default function AdminDashboard({
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (!editStudentName.trim() || !editStudentEmail.trim() || !editStudentRollNo.trim()) {
-                      alert("Please provide student name, email, and roll number.");
+                    if (!editStudentName.trim() || !editStudentEmail.trim()) {
+                      alert("Please provide student name and email.");
                       return;
                     }
 
@@ -8086,7 +9331,7 @@ export default function AdminDashboard({
                       onUpdateStudentDetails(editingStudent.id, {
                         name: editStudentName.trim(),
                         email: editStudentEmail.trim(),
-                        rollNo: editStudentRollNo.trim().toUpperCase(),
+                        rollNo: (editStudentRollNo || "").trim().toUpperCase() || editingStudent.rollNo,
                         password: editStudentPassword.trim(),
                         schoolName: editStudentSchool.trim(),
                         mobileNumber: editStudentMobile.trim(),
@@ -8094,7 +9339,11 @@ export default function AdminDashboard({
                         dob: editStudentDob.trim() || "12-11-2006"
                       });
                       
-                      alert("Student profile changes successfully synchronized!");
+                      triggerLiveStudentFeedback(
+                        editingStudent.id,
+                        "edit",
+                        `Enrollment Updated: ${editStudentName.trim()}`
+                      );
                       setEditingStudent(null);
                     }
                   }}
@@ -8110,23 +9359,6 @@ export default function AdminDashboard({
                       onChange={(e) => setEditStudentName(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-850 focus:outline-indigo-500 font-semibold"
                     />
-                  </div>
-
-                  {/* Batch Select */}
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-widest">Batch Select :-</label>
-                    <select
-                      value={editStudentBatchId}
-                      onChange={(e) => setEditStudentBatchId(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-850 focus:outline-indigo-550 cursor-pointer font-semibold"
-                    >
-                      <option value="">-- No Target Batch program assigned --</option>
-                      {batches.map(b => (
-                        <option key={b.id} value={b.id}>
-                          {b.name} ({b.subject})
-                        </option>
-                      ))}
-                    </select>
                   </div>
 
                   {/* School Name */}
@@ -8165,18 +9397,6 @@ export default function AdminDashboard({
                     />
                   </div>
 
-                  {/* Roll No */}
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-widest font-sans">Roll Code / Student ID</label>
-                    <input
-                      type="text"
-                      required
-                      value={editStudentRollNo}
-                      onChange={(e) => setEditStudentRollNo(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-850 focus:outline-indigo-500 font-mono font-bold uppercase text-slate-900"
-                    />
-                  </div>
-
                   {/* Password */}
                   <div className="space-y-1">
                     <label className="block text-[10px] text-indigo-650 font-bold uppercase tracking-widest font-mono">Secret Login Code</label>
@@ -8209,6 +9429,162 @@ export default function AdminDashboard({
                   >
                     Save Changes
                   </button>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          {/* CREATE ORDER ON STUDENT DEMAND MODAL */}
+          {isCreateOrderModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl border border-amber-200 shadow-2xl max-w-lg w-full overflow-hidden"
+              >
+                <div className="bg-gradient-to-r from-amber-600 to-amber-700 p-5 text-white flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <ShoppingBag className="w-5 h-5 text-amber-200" />
+                    <h3 className="font-extrabold text-base uppercase tracking-wider">
+                      Create Order on Student Demand
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setIsCreateOrderModalOpen(false)}
+                    className="p-1 rounded-full hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateOrderDemand} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Select Student <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      required
+                      value={newOrderStudentId}
+                      onChange={(e) => setNewOrderStudentId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-semibold text-slate-800"
+                    >
+                      <option value="">-- Choose Student --</option>
+                      {students.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.id}) - {s.schoolName || "Student"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Item / Book / Course Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Physics Formula Handbook 2026 or Test Series Batch"
+                      value={newOrderItemName}
+                      onChange={(e) => setNewOrderItemName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-semibold text-slate-800"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Amount / Price (₹) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        placeholder="e.g. 499"
+                        value={newOrderPrice || ""}
+                        onChange={(e) => setNewOrderPrice(Number(e.target.value))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-mono font-bold text-slate-800"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Payment Method
+                      </label>
+                      <select
+                        value={newOrderPaymentMethod}
+                        onChange={(e) => setNewOrderPaymentMethod(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-semibold text-slate-800"
+                      >
+                        <option value="Paid Cash at Center">Paid Cash at Center</option>
+                        <option value="UPI / Online Transfer">UPI / Online Transfer</option>
+                        <option value="Cash on Delivery (COD)">Cash on Delivery (COD)</option>
+                        <option value="Pending Payment at Center">Pending Payment at Center</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Initial Order Status
+                      </label>
+                      <select
+                        value={newOrderStatus}
+                        onChange={(e) => setNewOrderStatus(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-semibold text-slate-800"
+                      >
+                        <option value="Verified & Approved">Verified & Approved</option>
+                        <option value="Payment Confirmed / Active">Payment Confirmed / Active</option>
+                        <option value="Pending Payment at Center">Pending Payment at Center</option>
+                        <option value="Dispatched / In Transit">Dispatched / In Transit</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Delivery Address
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Center Pickup or Home Address"
+                        value={newOrderAddress}
+                        onChange={(e) => setNewOrderAddress(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 font-semibold text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Admin Remark / Note
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Requested directly at counseling desk"
+                      value={newOrderAdminNote}
+                      onChange={(e) => setNewOrderAdminNote(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-amber-600 text-slate-800"
+                    />
+                  </div>
+
+                  <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsCreateOrderModalOpen(false)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold uppercase rounded-xl shadow-md cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create Order Now</span>
+                    </button>
+                  </div>
                 </form>
               </motion.div>
             </div>

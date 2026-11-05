@@ -318,6 +318,22 @@
       },
       "required": ["id", "name", "status"]
     },
+    "Verifier": {
+      "title": "Verifier",
+      "description": "An administrative document verifier or portal staff profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "employeeCode": { "type": "string" },
+        "password": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "name", "status"]
+    },
     "CounsellingSlot": {
       "title": "CounsellingSlot",
       "description": "Available timeslot for counselling sessions",
@@ -398,6 +414,82 @@
       },
       "required": ["id", "studentId", "date", "status", "batchId"]
     },
+    "Course": {
+      "title": "Course",
+      "description": "Study HUB online learning courses with live classes, class notes, and doubts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "mentorName": { "type": "string" },
+        "duration": { "type": "string" },
+        "price": { "type": "number" },
+        "isPublished": { "type": "boolean" },
+        "isBlocked": { "type": "boolean" },
+        "demoVideoUrl": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "sections": { "type": "array" },
+        "announcements": { "type": "array" },
+        "liveClasses": { "type": "array" },
+        "classNotes": { "type": "array" },
+        "doubts": { "type": "array" }
+      },
+      "required": ["id", "title", "description", "mentorName", "price"]
+    },
+    "StoreItem": {
+      "title": "StoreItem",
+      "description": "Books, study kits, and stationery available in Study HUB Store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "image": { "type": "string" },
+        "inStock": { "type": "boolean" },
+        "authorOrBrand": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "description", "price", "image", "inStock"]
+    },
+    "StoreOrder": {
+      "title": "StoreOrder",
+      "description": "Orders placed for books and stationery in Study HUB Store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string" },
+        "studentMobile": { "type": "string" },
+        "deliveryAddress": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "studentName", "items", "totalAmount", "status", "createdAt"]
+    },
+    "StudyHubCenter": {
+      "title": "StudyHubCenter",
+      "description": "Physical offline study center branches and contact information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "pincode": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "operatingHours": { "type": "string" },
+        "managerName": { "type": "string" },
+        "mapQuery": { "type": "string" }
+      },
+      "required": ["id", "name", "city", "address", "pincode", "contactNumber", "email", "operatingHours", "managerName"]
+    },
     "AuthorizedDevice": {
       "title": "AuthorizedDevice",
       "description": "An administrative device approved for central access",
@@ -411,6 +503,53 @@
         "userAgent": { "type": "string" }
       },
       "required": ["id", "deviceName", "deviceKey", "authorizedAt"]
+    },
+    "LiveClassChatMessage": {
+      "title": "LiveClassChatMessage",
+      "description": "Real-time message in a live classroom stream session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "liveClassId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "isBlocked": { "type": "boolean" },
+        "isSystemNotice": { "type": "boolean" }
+      },
+      "required": ["id", "liveClassId", "senderId", "senderName", "text", "timestamp"]
+    },
+    "BlockedLiveStudent": {
+      "title": "BlockedLiveStudent",
+      "description": "A student blocked from participating in live classroom sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "reason": { "type": "string" },
+        "blockedAt": { "type": "string" },
+        "blockedBy": { "type": "string" }
+      },
+      "required": ["id", "studentId", "studentName", "blockedAt"]
+    },
+    "LiveClassWhiteboard": {
+      "title": "LiveClassWhiteboard",
+      "description": "Real-time collaborative whiteboard state for live classroom sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "liveClassId": { "type": "string" },
+        "strokes": { "type": "array" },
+        "backgroundColor": { "type": "string" },
+        "allowStudentDraw": { "type": "boolean" },
+        "updatedAt": { "type": "number" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "liveClassId"]
     }
   },
   "firestore": {
@@ -506,9 +645,41 @@
       "schema": "AttendanceRecord",
       "description": "Detailed student batch class-by-class attendance history"
     },
+    "courses": {
+      "schema": "Course",
+      "description": "Study HUB courses catalog with sections, notes, and doubts"
+    },
+    "storeItems": {
+      "schema": "StoreItem",
+      "description": "Study HUB store items catalog"
+    },
+    "storeOrders": {
+      "schema": "StoreOrder",
+      "description": "Study HUB orders placed by students"
+    },
+    "studyHubCenters": {
+      "schema": "StudyHubCenter",
+      "description": "Physical study hub centers in MP and India"
+    },
+    "verifiers": {
+      "schema": "Verifier",
+      "description": "Document verifier profiles list"
+    },
     "authorizedDevices": {
       "schema": "AuthorizedDevice",
       "description": "Secure access-allowed device fingerprint profiles"
+    },
+    "liveClassChats": {
+      "schema": "LiveClassChatMessage",
+      "description": "Real-time live class chat messages"
+    },
+    "blockedLiveStudents": {
+      "schema": "BlockedLiveStudent",
+      "description": "Registry of students blocked from live class attendance due to abuse"
+    },
+    "liveClassWhiteboards": {
+      "schema": "LiveClassWhiteboard",
+      "description": "Real-time collaborative whiteboard drawings and notes"
     }
   }
 }

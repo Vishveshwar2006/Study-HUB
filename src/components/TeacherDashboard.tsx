@@ -6,11 +6,12 @@ import {
   HelpCircle, CheckCircle, FileText, Loader2,
   User, Mail, Save, Link, Lock, Shield, UserPlus,
   IndianRupee, DollarSign, Receipt, PlusCircle, CreditCard, Filter, MessageSquare, Camera, Upload,
-  Menu, X, Scan, LayoutGrid, ArrowRight, School, ShieldAlert, AlertTriangle, Search
+  Menu, X, Scan, LayoutGrid, ArrowRight, School, ShieldAlert, AlertTriangle, Search, Video
 } from "lucide-react";
-import { Batch, Teacher, Student, Lesson, Test, Announcement, FeeInvoice, SupportMessage, ComputerDesk, TestQuestion, TestSubmission, AttendanceRecord, School as SchoolType, CounsellingRequest, AdmissionRequest } from "../types";
+import { Batch, Teacher, Student, Lesson, Test, Announcement, FeeInvoice, SupportMessage, ComputerDesk, TestQuestion, TestSubmission, AttendanceRecord, School as SchoolType, CounsellingRequest, AdmissionRequest, CourseLiveClass, Course } from "../types";
 import ReactMarkdown from "react-markdown";
 import QRCardScanner from "./QRCardScanner";
+import LiveClassStudio from "./LiveClassStudio";
 import { Monitor, Smartphone, CheckSquare, Eye, Edit3, XCircle, Award, Printer } from "lucide-react";
 
 interface TeacherDashboardProps {
@@ -59,8 +60,10 @@ interface TeacherDashboardProps {
   setAdmissionRequests?: React.Dispatch<React.SetStateAction<AdmissionRequest[]>>;
   setStudents?: React.Dispatch<React.SetStateAction<Student[]>>;
   setBatches?: React.Dispatch<React.SetStateAction<Batch[]>>;
-  activeTab?: "lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions";
-  setActiveTab?: (tab: "lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions") => void;
+  courses?: Course[];
+  setCourses?: React.Dispatch<React.SetStateAction<Course[]>>;
+  activeTab?: "lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions" | "liveClass";
+  setActiveTab?: (tab: "lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions" | "liveClass") => void;
   hideSidebarOnDesktop?: boolean;
 }
 
@@ -68,6 +71,8 @@ export default function TeacherDashboard({
   batches: rawBatches,
   teachers,
   students: rawStudents,
+  courses = [],
+  setCourses,
   lessons,
   tests,
   announcements,
@@ -218,7 +223,7 @@ export default function TeacherDashboard({
     }
   });
   const [selectedBatchId, setSelectedBatchId] = useState<string>("");
-  const [localActiveTab, setLocalActiveTab ] = useState<"lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions">("overview");
+  const [localActiveTab, setLocalActiveTab ] = useState<"lessons" | "tests" | "grading" | "announcements" | "profile" | "fees" | "support" | "scanner" | "overview" | "verification" | "createTest" | "computers" | "apaar-management" | "student-management" | "counselling" | "admissions" | "liveClass">("overview");
   const activeTab = propActiveTab || localActiveTab;
   const setActiveTab = propSetActiveTab || setLocalActiveTab;
 
@@ -233,6 +238,26 @@ export default function TeacherDashboard({
   // Card scanner constraints
   const [authorizedStudentIdForFee, setAuthorizedStudentIdForFee] = useState<string | null>(null);
   const [lastScannedTeacherDashboardStudent, setLastScannedTeacherDashboardStudent] = useState<Student | null>(null);
+
+  // Live Studio States
+  const [activeStudioLiveClass, setActiveStudioLiveClass] = useState<CourseLiveClass | null>(null);
+  const [isScheduleLiveModalOpen, setIsScheduleLiveModalOpen] = useState(false);
+  const [schedLiveTitle, setSchedLiveTitle] = useState("");
+  const [schedLiveDateTime, setSchedLiveDateTime] = useState("");
+  const [schedLiveDesc, setSchedLiveDesc] = useState("");
+  const [schedLiveTeacherId, setSchedLiveTeacherId] = useState("");
+  const [schedLiveCourseId, setSchedLiveCourseId] = useState("");
+  const [scheduledLiveClassesList, setScheduledLiveClassesList] = useState<CourseLiveClass[]>([
+    {
+      id: "live_studio_demo",
+      title: "Interactive Live Class: Advanced Mechanics & Vector Calculus",
+      scheduledAt: "Today @ 5:00 PM IST",
+      meetingOrVideoUrl: "https://meet.google.com/study-hub-live",
+      isLive: true,
+      instructorName: "Faculty Mentor",
+      description: "Live interactive class session featuring camera feed, audio controls, screen share, live chat and instant polls."
+    }
+  ]);
 
   // Fee management states
   const [feeStudentId, setFeeStudentId] = useState("");
@@ -610,7 +635,7 @@ export default function TeacherDashboard({
 
   const getMenuBtnStyle = (tabName: string) => {
     const isActive = activeTab === tabName;
-    return `flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-extrabold uppercase tracking-widest transition-all duration-200 shrink-0 whitespace-nowrap cursor-pointer border ${
+    return `flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm sm:text-base font-extrabold uppercase tracking-widest transition-all duration-200 shrink-0 whitespace-nowrap cursor-pointer border ${
       isActive
         ? "bg-red-600 border-red-600 text-white shadow-xs hover:bg-black hover:border-black hover:text-white"
         : "bg-white border-slate-200 text-slate-800 hover:bg-black hover:border-black hover:text-white"
@@ -814,13 +839,21 @@ export default function TeacherDashboard({
             } gap-1.5`}>
               <button
                 onClick={() => {
-                  setActiveTab("overview");
+                  setActiveTab("liveClass");
                   setIsMobileMenuOpen(false);
                 }}
-                className={getMenuBtnStyle("overview")}
+                className={getMenuBtnStyle("liveClass")}
+                id="tab-teacher-live-class"
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>My Batches Overview</span>
+                <Video className="w-3.5 h-3.5 shrink-0 text-rose-500 animate-pulse" />
+                <span>Live Class</span>
+                {scheduledLiveClassesList.length > 0 && (
+                  <span className={`font-mono text-[9px] font-black ml-auto px-1.5 py-0.5 rounded-full transition-all ${
+                    activeTab === "liveClass" ? "bg-rose-100 text-rose-800" : "bg-rose-600 text-white"
+                  }`}>
+                    {scheduledLiveClassesList.length}
+                  </span>
+                )}
               </button>
 
               <button
@@ -1014,6 +1047,70 @@ export default function TeacherDashboard({
                         <UserPlus className="w-3.5 h-3.5" />
                         <span>Onboard Student</span>
                       </button>
+                    </div>
+
+                    {/* ONLINE LIVE CLASSROOM STUDIO BANNER */}
+                    <div className="bg-gradient-to-r from-rose-900 via-rose-950 to-slate-900 text-white p-6 rounded-3xl border border-rose-800 shadow-xl space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                            <span className="text-[10px] font-mono font-black uppercase tracking-widest text-rose-400 bg-rose-950/80 px-2.5 py-0.5 rounded-full border border-rose-800">
+                              LIVE CLASSROOM PLATFORM ALL-IN-ONE
+                            </span>
+                          </div>
+                          <h4 className="text-base font-extrabold text-white">
+                            Interactive Live Session Studio (Camera, Audio, Screen Rec & Chat)
+                          </h4>
+                          <p className="text-xs text-rose-200/90 leading-relaxed max-w-2xl">
+                            Broadcast live lectures with full camera feed, microphone noise reduction, desktop screen sharing, real-time screen video recording, interactive chat room, and instant live polls.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <button
+                            onClick={() =>
+                              setActiveStudioLiveClass({
+                                id: `live_instant_${Date.now()}`,
+                                title: `Live Session: ${currentBatch?.name || "General Batch Lecture"}`,
+                                scheduledAt: "Live Now",
+                                meetingOrVideoUrl: "#",
+                                isLive: true,
+                                instructorName: activeTeacher?.name || "Faculty Mentor",
+                                description: "Interactive live class room session with real-time video, audio, screen recording, and live student chat."
+                              })
+                            }
+                            className="px-5 py-3 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-rose-900/50 flex items-center space-x-2 cursor-pointer transition-all hover:scale-105"
+                          >
+                            <Video className="w-4 h-4 animate-bounce" />
+                            <span>Launch Live Studio 🎥</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Scheduled Live Classes List */}
+                      {scheduledLiveClassesList.length > 0 && (
+                        <div className="border-t border-rose-800/80 pt-4 space-y-2">
+                          <p className="text-[11px] font-bold text-rose-300 uppercase tracking-wide">Upcoming / Active Live Sessions:</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {scheduledLiveClassesList.map((sc) => (
+                              <div key={sc.id} className="bg-rose-950/60 p-3.5 rounded-2xl border border-rose-800/60 flex items-center justify-between">
+                                <div>
+                                  <h5 className="text-xs font-bold text-white">{sc.title}</h5>
+                                  <p className="text-[10px] text-rose-300">{sc.scheduledAt}</p>
+                                </div>
+                                <button
+                                  onClick={() => setActiveStudioLiveClass(sc)}
+                                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold uppercase rounded-xl flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Video className="w-3 h-3" />
+                                  <span>Start</span>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* FACULTY SOS PANIC ALARM BOARD */}
@@ -3896,7 +3993,7 @@ export default function TeacherDashboard({
                         </div>
                         <div>
                           <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest font-sans">Collected Receipts</span>
-                          <span className="text-lg font-black text-slate-800 font-mono">${totalCollected.toLocaleString()}</span>
+                          <span className="text-lg font-black text-slate-800 font-mono">${(totalCollected ?? 0).toLocaleString()}</span>
                         </div>
                       </motion.div>
 
@@ -3910,7 +4007,7 @@ export default function TeacherDashboard({
                         </div>
                         <div>
                           <span className="block text-[8px] font-bold text-slate-400 uppercase tracking-widest font-sans">Outstanding Receivables</span>
-                          <span className="text-lg font-black text-slate-800 font-mono">${totalOutstanding.toLocaleString()}</span>
+                          <span className="text-lg font-black text-slate-800 font-mono">${(totalOutstanding ?? 0).toLocaleString()}</span>
                         </div>
                       </motion.div>
 
@@ -6488,6 +6585,378 @@ export default function TeacherDashboard({
               </div>
             )}
 
+            {/* LIVE CLASS MANAGEMENT & SCHEDULER TAB PANEL */}
+            {activeTab === "liveClass" && (
+              <div className="space-y-6 text-left animate-fadeIn font-sans">
+                {/* Header Banner */}
+                <div className="bg-gradient-to-r from-slate-900 via-rose-950 to-slate-900 text-white p-6 rounded-3xl border border-rose-900/60 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+                  <div className="space-y-2 z-10">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                      <span className="text-[10px] font-mono font-black uppercase tracking-widest text-rose-400 bg-rose-950/80 px-3 py-1 rounded-full border border-rose-800">
+                        FACULTY LIVE CLASS STUDIO & SCHEDULER
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                      <Video className="w-6 h-6 text-rose-400" />
+                      <span>Take Live Class & Scheduled Sessions</span>
+                    </h3>
+                    <p className="text-xs text-rose-200/90 leading-relaxed max-w-2xl">
+                      Host interactive live classes with real-time video feeds, digital whiteboards, screen sharing, real-time recording, instant student chat, and live polls according to schedules configured by school administrators or faculty.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 shrink-0 z-10">
+                    <button
+                      type="button"
+                      onClick={() => setIsScheduleLiveModalOpen(true)}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs uppercase tracking-wider rounded-2xl border border-slate-700 flex items-center space-x-2 cursor-pointer transition-all"
+                    >
+                      <Calendar className="w-4 h-4 text-rose-400" />
+                      <span>Schedule Class 🗓️</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveStudioLiveClass({
+                          id: `live_instant_${Date.now()}`,
+                          title: `Instant Live Class: ${currentBatch?.name || "General Tutorial"}`,
+                          scheduledAt: "Live Now",
+                          meetingOrVideoUrl: "#",
+                          isLive: true,
+                          instructorName: activeTeacher?.name || "Faculty Mentor",
+                          description: "Interactive live broadcast with camera, microphone, digital whiteboard, and live student chat."
+                        })
+                      }
+                      className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-rose-900/50 flex items-center space-x-2 cursor-pointer transition-all hover:scale-105"
+                    >
+                      <Video className="w-4 h-4 animate-bounce" />
+                      <span>Launch Live Studio Now 🎥</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* SCHEDULE LIVE CLASS MODAL */}
+                {isScheduleLiveModalOpen && (
+                  <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-scaleUp text-left">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl">
+                            <Calendar className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">Schedule Live Class Session</h4>
+                            <p className="text-[11px] text-slate-400">Add a scheduled live class for your batch students.</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setIsScheduleLiveModalOpen(false)}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!schedLiveTitle.trim()) {
+                            alert("Please enter a live class title.");
+                            return;
+                          }
+                          const selectedTeacherObj = teachers.find(t => t.id === schedLiveTeacherId);
+                          const selectedCourseObj = (courses || []).find(c => c.id === schedLiveCourseId);
+
+                          const newClass: CourseLiveClass = {
+                            id: `sc_live_${Date.now()}`,
+                            title: schedLiveTitle.trim(),
+                            scheduledAt: schedLiveDateTime.trim() || `Today @ ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                            meetingOrVideoUrl: "https://meet.google.com/study-hub-live",
+                            isLive: false,
+                            instructorName: selectedTeacherObj ? selectedTeacherObj.name : (activeTeacher?.name || "Faculty Mentor"),
+                            instructorId: selectedTeacherObj?.id,
+                            courseTitle: selectedCourseObj?.title,
+                            courseId: selectedCourseObj?.id,
+                            description: schedLiveDesc.trim() || "Scheduled live session for interactive discussion, syllabus review, and Q&A."
+                          };
+
+                          setScheduledLiveClassesList(prev => [newClass, ...prev]);
+
+                          if (selectedCourseObj && setCourses) {
+                            setCourses(prevCourses => prevCourses.map(c => {
+                              if (c.id === selectedCourseObj.id) {
+                                return {
+                                  ...c,
+                                  liveClasses: [newClass, ...(c.liveClasses || [])]
+                                };
+                              }
+                              return c;
+                            }));
+                          }
+
+                          setSchedLiveTitle("");
+                          setSchedLiveDateTime("");
+                          setSchedLiveDesc("");
+                          setSchedLiveTeacherId("");
+                          setSchedLiveCourseId("");
+                          setIsScheduleLiveModalOpen(false);
+                          alert(`Live class "${newClass.title}" scheduled successfully for teacher ${newClass.instructorName}!`);
+                        }}
+                        className="space-y-4"
+                      >
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Class Topic / Title <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Special Revision Class: Vector Algebra & Calculus"
+                            value={schedLiveTitle}
+                            onChange={(e) => setSchedLiveTitle(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                              Assigned Teacher / Faculty
+                            </label>
+                            <select
+                              value={schedLiveTeacherId}
+                              onChange={(e) => setSchedLiveTeacherId(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans font-medium"
+                            >
+                              <option value="">-- Current Teacher ({activeTeacher?.name || "Self"}) --</option>
+                              {teachers.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} ({t.specialization || t.subject || "Faculty"})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                              Link to Course (Adds to Curriculum)
+                            </label>
+                            <select
+                              value={schedLiveCourseId}
+                              onChange={(e) => setSchedLiveCourseId(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans font-medium"
+                            >
+                              <option value="">-- Select Target Course (Optional) --</option>
+                              {(courses || []).map(c => (
+                                <option key={c.id} value={c.id}>{c.title}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                              Target Tutorial / Batch
+                            </label>
+                            <select
+                              value={currentBatchId}
+                              onChange={(e) => setSelectedBatchId(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans"
+                            >
+                              {teacherBatches.map(b => (
+                                <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                              Scheduled Date & Time
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Tomorrow @ 4:00 PM IST"
+                              value={schedLiveDateTime}
+                              onChange={(e) => setSchedLiveDateTime(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Session Description & Agenda
+                          </label>
+                          <textarea
+                            rows={3}
+                            placeholder="Detail topics covered, prerequisites, or homework requirements..."
+                            value={schedLiveDesc}
+                            onChange={(e) => setSchedLiveDesc(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-rose-500 font-sans"
+                          />
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-100 flex justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setIsScheduleLiveModalOpen(false)}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all shadow-md"
+                          >
+                            Confirm Schedule
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* SCHEDULED & ACTIVE LIVE CLASSES LIST */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600" />
+                      <h4 className="text-xs font-black uppercase tracking-widest text-slate-700">
+                        Scheduled & Active Live Classes ({scheduledLiveClassesList.length})
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg">
+                      Admin Schedule Synchronized
+                    </span>
+                  </div>
+
+                  {scheduledLiveClassesList.length === 0 ? (
+                    <div className="bg-white p-12 rounded-3xl border border-dashed border-slate-200 text-center space-y-3">
+                      <Video className="w-10 h-10 text-slate-300 mx-auto" />
+                      <h5 className="font-bold text-slate-600 text-sm">No Scheduled Live Classes</h5>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto">
+                        There are currently no live classes scheduled by administration or faculty. Click "Schedule Class 🗓️" above to schedule one now.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {scheduledLiveClassesList.map((sc) => (
+                        <div
+                          key={sc.id}
+                          className="bg-white p-5 rounded-3xl border border-slate-200 hover:border-rose-300 shadow-sm hover:shadow-md transition-all space-y-4 text-left flex flex-col justify-between"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-[9px] font-mono font-black uppercase px-2.5 py-0.5 rounded-md flex items-center gap-1.5 ${
+                                sc.isLive 
+                                  ? "bg-rose-100 text-rose-700 border border-rose-200 animate-pulse" 
+                                  : "bg-amber-50 text-amber-700 border border-amber-200"
+                              }`}>
+                                {sc.isLive ? "🔴 LIVE NOW" : "🗓️ SCHEDULED CLASS"}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                                {sc.scheduledAt}
+                              </span>
+                            </div>
+
+                            <h5 className="font-extrabold text-slate-800 text-sm leading-snug">
+                              {sc.title}
+                            </h5>
+
+                            <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+                              {sc.description || "Interactive live session with video feed, audio controls, digital whiteboard, and live student chat."}
+                            </p>
+
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              <span className="text-[9px] bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded">
+                                📹 Live Webcam
+                              </span>
+                              <span className="text-[9px] bg-indigo-50 text-indigo-600 font-semibold px-2 py-0.5 rounded">
+                                🖊️ Digital Whiteboard
+                              </span>
+                              <span className="text-[9px] bg-emerald-50 text-emerald-600 font-semibold px-2 py-0.5 rounded">
+                                💬 Live Chat
+                              </span>
+                              <span className="text-[9px] bg-purple-50 text-purple-600 font-semibold px-2 py-0.5 rounded">
+                                📊 Instant Polls
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="space-y-0.5">
+                              <div className="text-[11px] text-slate-500 font-medium">
+                                Instructor: <strong className="text-slate-800 font-bold">{sc.instructorName || activeTeacher?.name}</strong>
+                              </div>
+                              {sc.courseTitle && (
+                                <div className="text-[10px] text-indigo-600 font-bold flex items-center gap-1">
+                                  <span>📚 Course:</span>
+                                  <span className="truncate max-w-[200px]">{sc.courseTitle}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setActiveStudioLiveClass(sc)}
+                              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center space-x-1.5 cursor-pointer transition-all shrink-0"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                              <span>Take Live Class 🎥</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* STUDIO CAPABILITIES OVERVIEW CARD */}
+                <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 space-y-4">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-rose-400 flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-rose-400 animate-pulse" />
+                    <span>Live Classroom Studio Capabilities</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                      <span className="text-lg">🖊️</span>
+                      <h6 className="text-xs font-bold text-white">Interactive Whiteboard</h6>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        Real-time vector canvas with pen, eraser, shapes, text tools & sync with student devices.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                      <span className="text-lg">📹</span>
+                      <h6 className="text-xs font-bold text-white">HD Video & Screen Share</h6>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        Broadcast webcam video feed, share desktop windows, and record live session video locally.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                      <span className="text-lg">💬</span>
+                      <h6 className="text-xs font-bold text-white">Real-Time Chat & Q&A</h6>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        Instant classroom discussion board for student questions with teacher moderation.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                      <span className="text-lg">📊</span>
+                      <h6 className="text-xs font-bold text-white">Instant Quiz Polls</h6>
+                      <p className="text-[11px] text-slate-400 leading-normal">
+                        Publish live multiple-choice polls during lecture and view instant real-time student responses.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* REGISTERED SCHOOLS READING-ONLY PORTFOLIO TAB PANEL */}
             {activeTab === ("schools" as any) && (
               <div className="space-y-6 text-left animate-fadeIn">
@@ -6558,6 +7027,16 @@ export default function TeacherDashboard({
         <span className="font-extrabold text-slate-500 uppercase tracking-wider text-[10px]">© 2026 Vishveshwar Foundation Ltd.</span>
         <span className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-1 rounded-full font-bold">Faculty Academic Console</span>
       </div>
+
+      {/* LIVE CLASSROOM STUDIO MODAL */}
+      {activeStudioLiveClass && (
+        <LiveClassStudio
+          liveClass={activeStudioLiveClass}
+          userRole="teacher"
+          currentUser={{ id: loggedInTeacherId || "teacher_1", name: activeTeacher?.name || "Faculty Mentor" }}
+          onClose={() => setActiveStudioLiveClass(null)}
+        />
+      )}
     </div>
   );
 }

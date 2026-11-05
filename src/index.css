@@ -66,9 +66,9 @@ body {
 input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="range"]):not([type="image"]),
 select,
 textarea {
-  background-color: #ffffff !important;
-  color: #000000 !important;
-  border-color: #cbd5e1 !important; /* slate-300 border */
+  background-color: #ffffff;
+  color: #000000;
+  border-color: #cbd5e1; /* slate-300 border */
 }
 
 /* Focus adjustments */
@@ -89,6 +89,37 @@ textarea::placeholder {
 
 /* Select options readability */
 select option {
-  background-color: #ffffff !important;
-  color: #000000 !important;
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* Media Print Rules for Order Tax Invoice Printing */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #printable-invoice-modal,
+  #printable-invoice-modal * {
+    visibility: visible !important;
+  }
+  #printable-invoice-modal {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    z-index: 999999 !important;
+    overflow: visible !important;
+  }
+  .print-hide,
+  .print\:hidden {
+    display: none !important;
+  }
 }

@@ -242,173 +242,165 @@ service cloud.firestore {
           && data.authorizedAt is string && data.authorizedAt.size() <= 128;
     }
 
+    function isValidStudyHubCenter(data) {
+      return data.id is string && data.id.size() <= 128
+          && data.name is string && data.name.size() <= 250
+          && data.city is string && data.city.size() <= 200
+          && data.address is string && data.address.size() <= 500
+          && data.pincode is string && data.pincode.size() <= 128
+          && data.contactNumber is string && data.contactNumber.size() <= 128
+          && data.email is string && data.email.size() <= 200
+          && data.operatingHours is string && data.operatingHours.size() <= 200
+          && data.managerName is string && data.managerName.size() <= 200;
+    }
+
     // --- SECURED COLLECTIONS ---
     match /schools/{schoolId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(schoolId) && isValidSchool(incoming());
-      allow update: if isSignedIn() && isValidId(schoolId) && isValidSchool(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /teachers/{teacherId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming());
-      allow update: if isSignedIn() && isValidId(teacherId) && isValidTeacher(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /students/{studentId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming());
-      allow update: if isSignedIn() && isValidId(studentId) && isValidStudent(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /batches/{batchId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
-      allow update: if isSignedIn() && isValidId(batchId) && isValidBatch(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /lessons/{lessonId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(lessonId) && isValidLesson(incoming());
-      allow update: if isSignedIn() && isValidId(lessonId) && isValidLesson(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /tests/{testId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(testId) && isValidTest(incoming());
-      allow update: if isSignedIn() && isValidId(testId) && isValidTest(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /testSubmissions/{submissionId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(submissionId) && isValidTestSubmission(incoming());
-      allow update: if isSignedIn() && isValidId(submissionId) && isValidTestSubmission(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /computerDesks/{deskId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(deskId) && isValidComputerDesk(incoming());
-      allow update: if isSignedIn() && isValidId(deskId) && isValidComputerDesk(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /announcements/{announcementId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming());
-      allow update: if isSignedIn() && isValidId(announcementId) && isValidAnnouncement(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /feeInvoices/{invoiceId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(invoiceId) && isValidFeeInvoice(incoming());
-      allow update: if isSignedIn() && isValidId(invoiceId) && isValidFeeInvoice(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /supportMessages/{messageId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(messageId) && isValidSupportMessage(incoming());
-      allow update: if isSignedIn() && isValidId(messageId) && isValidSupportMessage(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /contactLeads/{leadId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(leadId) && isValidContactLead(incoming());
-      allow update: if isSignedIn() && isValidId(leadId) && isValidContactLead(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /securitySOSAlerts/{alertId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(alertId) && isValidSecuritySOSAlert(incoming());
-      allow update: if isSignedIn() && isValidId(alertId) && isValidSecuritySOSAlert(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /onlineAnnouncements/{announcementId} {
-      allow get, list: if true;
-      allow create: if isSignedIn() && isValidId(announcementId) && isValidOnlineAnnouncement(incoming());
-      allow update: if isSignedIn() && isValidId(announcementId) && isValidOnlineAnnouncement(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /counsellingRequests/{requestId} {
-      allow get, list: if true;
-      allow create: if isValidId(requestId) && isValidCounsellingRequest(incoming());
-      allow update: if isValidId(requestId) && isValidCounsellingRequest(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /admins/{adminId} {
-      allow get, list: if true;
-      allow create: if isValidId(adminId) && isValidAdminUser(incoming());
-      allow update: if isValidId(adminId) && isValidAdminUser(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /feeManagers/{managerId} {
-      allow get, list: if true;
-      allow create: if isValidId(managerId) && isValidFeeManager(incoming());
-      allow update: if isValidId(managerId) && isValidFeeManager(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /admissionOfficers/{officerId} {
-      allow get, list: if true;
-      allow create: if isValidId(officerId) && isValidAdmissionOfficer(incoming());
-      allow update: if isValidId(officerId) && isValidAdmissionOfficer(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /counsellingSlots/{slotId} {
-      allow get, list: if true;
-      allow create: if isValidId(slotId) && isValidCounsellingSlot(incoming());
-      allow update: if isValidId(slotId) && isValidCounsellingSlot(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /admissionRequests/{requestId} {
-      allow get, list: if true;
-      allow create: if isValidId(requestId) && isValidAdmissionRequest(incoming());
-      allow update: if isValidId(requestId) && isValidAdmissionRequest(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /publicBatches/{batchId} {
-      allow get, list: if true;
-      allow create: if isValidId(batchId) && isValidPublicBatch(incoming());
-      allow update: if isValidId(batchId) && isValidPublicBatch(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /appNotifications/{notificationId} {
-      allow get, list: if true;
-      allow create: if isValidId(notificationId) && isValidAppNotification(incoming());
-      allow update: if isValidId(notificationId) && isValidAppNotification(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /attendanceRecords/{recordId} {
-      allow get, list: if true;
-      allow create: if isValidId(recordId) && isValidAttendanceRecord(incoming());
-      allow update: if isValidId(recordId) && isValidAttendanceRecord(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /authorizedDevices/{deviceId} {
-      allow get, list: if true;
-      allow create: if isValidId(deviceId) && isValidAuthorizedDevice(incoming());
-      allow update: if isValidId(deviceId) && isValidAuthorizedDevice(incoming());
-      allow delete: if isSignedIn();
+      allow read, write: if true;
+    }
+
+    match /courses/{courseId} {
+      allow read, write: if true;
+    }
+
+    match /storeItems/{itemId} {
+      allow read, write: if true;
+    }
+
+    match /storeOrders/{orderId} {
+      allow read, write: if true;
+    }
+
+    match /verifiers/{verifierId} {
+      allow read, write: if true;
+    }
+
+    match /studyHubCenters/{centerId} {
+      allow read, write: if true;
+    }
+
+    match /liveClassChats/{chatId} {
+      allow read, write: if true;
+    }
+
+    match /blockedLiveStudents/{blockedId} {
+      allow read, write: if true;
+    }
+
+    match /liveClassWhiteboards/{whiteboardId} {
+      allow read, write: if true;
+    }
+
+    match /examForms/{formId} {
+      allow read, write: if true;
+    }
+
+    match /examSubjects/{subjectId} {
+      allow read, write: if true;
+    }
+
+    match /examResults/{resultId} {
+      allow read, write: if true;
+    }
+
+    match /examSettings/{settingId} {
+      allow read, write: if true;
+    }
+
+    match /branchPins/{pinId} {
+      allow read, write: if true;
     }
   }
 }

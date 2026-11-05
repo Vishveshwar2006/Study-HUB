@@ -15,6 +15,7 @@ export interface Teacher {
   email?: string;
   employeeCode?: string;
   specialization: string;
+  subject?: string;
   avatar: string;
   status: "Active" | "On Leave";
   password?: string;
@@ -41,6 +42,8 @@ export interface Student {
   schoolName?: string;
   mobileNumber?: string;
   batchId?: string;
+  batchName?: string;
+  enrollmentStatus?: "Enrolled" | "Un-Enrolled" | "Blocked";
   isSelfRegistered?: boolean;
   isGoogleRegistered?: boolean;
   googleEmail?: string;
@@ -170,10 +173,13 @@ export interface SupportMessage {
   id: string;
   senderId: string;
   senderName: string;
-  senderRole: "student" | "teacher" | "admin" | "feemanager" | "admission";
+  senderRole: "student" | "teacher" | "admin" | "feemanager" | "admission" | "bot";
   content: string;
   timestamp: string;
   studentId: string; // Groups conversation thread under a student
+  relatedOrderId?: string;
+  messageType?: "text" | "order_status" | "address_change_request" | "cancel_request";
+  requestedAddress?: string;
 }
 
 export interface FeeManager {
@@ -248,6 +254,8 @@ export interface School {
   status: "Active" | "Inactive";
   registeredAt: string;
   isAllotted?: boolean;
+  lat?: number;
+  lng?: number;
 }
 
 export interface AppNotification {
@@ -329,9 +337,295 @@ export interface Verifier {
   id: string;
   name: string;
   username: string;
+  email?: string;
   password?: string;
   status: "Active" | "Inactive";
   employeeCode?: string;
+}
+
+export interface CourseSection {
+  id: string;
+  title: string;
+  description?: string;
+  order: number;
+  attachmentType?: "pdf" | "video" | "online" | "none";
+  attachmentUrl?: string;
+  attachmentTitle?: string;
+}
+
+export interface CourseAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface LiveClassChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: "Teacher" | "Host" | "Admin" | "Student" | "System";
+  senderAvatar?: string;
+  message: string;
+  timestamp: string;
+  isPinned?: boolean;
+  createdAt?: number;
+}
+
+export interface LiveClassPoll {
+  id: string;
+  question: string;
+  options: { id: string; text: string; votes: number }[];
+  totalVotes: number;
+  votedUserIds: string[];
+  isActive: boolean;
+}
+
+export interface CourseLiveClass {
+  id: string;
+  sectionId?: string;
+  title: string;
+  scheduledAt: string;
+  meetingOrVideoUrl: string;
+  isLive: boolean;
+  description?: string;
+  recordingUrl?: string;
+  durationMinutes?: number;
+  instructorName?: string;
+  instructorId?: string;
+  courseTitle?: string;
+  courseId?: string;
+  chatMessages?: LiveClassChatMessage[];
+  activePoll?: LiveClassPoll;
+}
+
+export interface CourseClassNote {
+  id: string;
+  sectionId?: string;
+  title: string;
+  fileUrlOrContent: string;
+  uploadedAt: string;
+}
+
+export interface CourseDoubtMessage {
+  id: string;
+  studentId: string;
+  studentName: string;
+  message: string;
+  reply?: string;
+  repliedBy?: string;
+  timestamp: string;
+}
+
+export interface Course {
+  id: string;
+  title: string;
+  description: string;
+  mentorName: string;
+  mentorId?: string;
+  duration: string;
+  price: number;
+  isPublished: boolean;
+  isBlocked: boolean;
+  demoVideoUrl?: string;
+  createdAt: string;
+  sections: CourseSection[];
+  announcements: CourseAnnouncement[];
+  liveClasses: CourseLiveClass[];
+  classNotes: CourseClassNote[];
+  doubts: CourseDoubtMessage[];
+  enrolledStudentIds?: string[];
+}
+
+export interface StoreItem {
+  id: string;
+  name: string;
+  type: "book" | "study_guide" | "stationery" | "exam_kit" | "course";
+  description: string;
+  price: number;
+  image: string;
+  inStock: boolean;
+  stockCount?: number;
+  sku?: string;
+  discountPercent?: number;
+  courseId?: string;
+  authorOrBrand?: string;
+}
+
+export interface StudyHubCenter {
+  id: string;
+  name: string;
+  city: string;
+  address: string;
+  pincode: string;
+  contactNumber: string;
+  email: string;
+  operatingHours: string;
+  managerName: string;
+  mapQuery?: string;
+}
+
+export interface StoreOrder {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentMobile: string;
+  items: { itemId: string; itemName: string; price: number; quantity: number; itemType?: string; courseId?: string }[];
+  totalAmount: number;
+  paymentMethod: "Offline Payment at Study Hub Center" | "Cash on Delivery (COD)" | "Free Admission Form" | "Free Verification Form" | string;
+  centerId?: string;
+  centerName?: string;
+  centerAddress?: string;
+  shippingAddress?: string;
+  status: "Pending Payment at Center" | "Payment Confirmed / Active" | "Placed" | "Confirmed" | "Out for Delivery" | "Delivered" | "Cancelled" | "Pending Admin Verification" | "Verified & Approved" | string;
+  adminComment?: string;
+  orderDate: string;
+  paymentConfirmedAt?: string;
+  courierName?: string;
+  trackingId?: string;
+  expectedDeliveryDate?: string;
+  deliveryNotes?: string;
+  dispatchedAt?: string;
+  deliveredAt?: string;
+}
+
+export interface CartItem {
+  id: string;
+  title: string;
+  type: "course" | "book" | "stationery";
+  price: number;
+  description?: string;
+  image?: string;
+  authorOrBrand?: string;
+  quantity: number;
+}
+
+// ======================== EXAM PORTAL MODELS ========================
+
+export interface ExamSubject {
+  id: string;
+  subjectName: string;
+  subjectCode: string; // e.g. PHY-101, CHE-102
+  classGrade: string; // e.g. Class 10, Class 11-Science, Class 12-Science
+  theoryMaxMarks: number; // e.g. 70
+  practicalMaxMarks: number; // e.g. 30
+  totalMaxMarks: number; // e.g. 100
+  passingMarks: number; // e.g. 33
+  addedByTeacherId?: string;
+  addedByTeacherName?: string;
+  createdAt: string;
+}
+
+export interface ExamFormSubjectEntry {
+  subjectId: string;
+  subjectName: string;
+  subjectCode: string;
+  theoryMaxMarks: number;
+  practicalMaxMarks: number;
+  totalMaxMarks: number;
+  passingMarks: number;
+}
+
+export interface StudentExamMark {
+  subjectId: string;
+  subjectName: string;
+  subjectCode: string;
+  theoryMarksObtained: number;
+  practicalMarksObtained: number;
+  totalObtained: number;
+  totalMaxMarks: number;
+  passingMarks: number;
+  isPassed: boolean;
+  grade: string; // A+, A, B, C, D, F
+}
+
+export interface ExamForm {
+  id: string;
+  studentId: string;
+  studentName: string;
+  rollNo: string;
+  scholarNumber?: string;
+  fatherName?: string;
+  motherName?: string;
+  dob?: string;
+  gender?: string;
+  mobileNumber?: string;
+  email?: string;
+  avatar?: string;
+  classGrade: string;
+  branchCenterId: string;
+  branchCenterName: string;
+  examSession: string;
+  subjects: ExamFormSubjectEntry[];
+  examFee: number;
+  feeStatus: "Paid" | "Unpaid";
+  paymentMethod?: string;
+  paymentReceiptNo?: string;
+  paidAt?: string;
+  filledByTeacherId: string;
+  filledByTeacherName: string;
+  formStatus: "Submitted" | "Verified" | "Approved" | "Under Review";
+  submissionDate: string;
+  updatedAt?: string;
+  adminRemarks?: string;
+}
+
+export interface ExamStudentMarksheet {
+  id: string;
+  examFormId: string;
+  studentId: string;
+  studentName: string;
+  rollNo: string;
+  classGrade: string;
+  branchCenterName: string;
+  examSession: string;
+  marks: StudentExamMark[];
+  grandTotalObtained: number;
+  grandTotalMax: number;
+  percentage: number;
+  overallGrade: string; // A+, A, B+, B, C, D, F
+  resultStatus: "PASS" | "COMPARTMENT" | "FAIL";
+  division: "First Division" | "Second Division" | "Third Division" | "Fail";
+  updatedBy: string;
+  updatedByRole: "teacher" | "admin";
+  lastUpdated: string;
+}
+
+export interface BranchPIN {
+  id: string;
+  branchId: string;
+  branchName: string;
+  pin: string; // 4-6 digit secure PIN
+  inchargeName: string;
+  createdAt: string;
+  updatedAt: string;
+  createdByAdminId: string;
+}
+
+export interface ExamPortalSettings {
+  id: string;
+  isFormLocked: boolean;
+  formLockDate?: string;
+  formLockTime?: string;
+  formLockMessage?: string;
+  isMarksLocked: boolean;
+  marksLockDate?: string;
+  marksLockTime?: string;
+  marksLockMessage?: string;
+  isResultLocked: boolean;
+  resultLockDate?: string;
+  resultLockTime?: string;
+  resultLockMessage?: string;
+  isAdmitCardLaunched: boolean;
+  admitCardLaunchDate?: string;
+  admitCardReportingTime?: string;
+  admitCardExamCenterName?: string;
+  admitCardExamCenterAddress?: string;
+  admitCardExamStartDate?: string;
+  admitCardInstructions?: string[];
+  launchedByAdminName?: string;
+  activeExamSession: string;
 }
 
 

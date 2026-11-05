@@ -483,7 +483,7 @@ export default function PublicWebsite({
               className="py-2.5 px-4 bg-pink-600 hover:bg-pink-500 active:scale-95 text-xs font-black uppercase tracking-widest text-white rounded-xl shadow-lg shadow-pink-500/20 cursor-pointer transition-all duration-150 flex items-center space-x-1.5 border border-transparent"
             >
               <Award className="w-4 h-4 text-pink-100" />
-              <span>Online Marksheet</span>
+              <span>Check Result</span>
             </button>
 
             <button
@@ -491,7 +491,7 @@ export default function PublicWebsite({
               id="header-login-btn"
               className="py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-95 text-xs font-black uppercase tracking-widest text-white rounded-xl shadow-lg shadow-indigo-600/10 cursor-pointer transition-all duration-150 flex items-center space-x-1.5"
             >
-              <span>Login Portal</span>
+              <span>Login</span>
               <span className="font-mono text-sm">→</span>
             </button>
 
@@ -537,7 +537,7 @@ export default function PublicWebsite({
               className="py-1.5 px-2 bg-pink-700 hover:bg-pink-650 text-white text-[10px] sm:text-xs font-extrabold uppercase tracking-widest rounded-lg transition duration-150 active:scale-95 flex items-center space-x-1 cursor-pointer"
             >
               <Award className="w-3.5 h-3.5 text-pink-100" />
-              <span className="hidden sm:inline">Marksheet</span>
+              <span className="hidden sm:inline">Check Result</span>
             </button>
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -790,7 +790,7 @@ export default function PublicWebsite({
             </h1>
 
             <p className="text-sm sm:text-base text-slate-400 leading-relaxed max-w-2xl font-sans">
-              Welcome to Study Hub, a premier co-educational secondary school and competitive training academy. Under the aegis of the elite Vishveshwar Foundation, we combine traditional conceptual studies in Physics, Chemistry, and Mathematics alongside our high-speed proctored simulator computer testing laboratories, transparent fee portal management, and instant digital transcripts.
+              Study Hub is a premier co-educational secondary school and competitive training academy. Under the aegis of the elite Vishveshwar Foundation, we combine traditional conceptual studies in Physics, Chemistry, and Mathematics alongside our high-speed proctored simulator computer testing laboratories, transparent fee portal management, and instant digital transcripts.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
@@ -2380,7 +2380,7 @@ export default function PublicWebsite({
                     required
                     value={feeRoll}
                     onChange={(e) => setFeeRoll(e.target.value)}
-                    placeholder="e.g. CO-2026-004"
+                    placeholder="Type scholar roll number"
                     className="w-full bg-slate-950/60 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-emerald-550 placeholder-slate-600 font-mono font-bold"
                   />
                 </div>
@@ -2400,7 +2400,7 @@ export default function PublicWebsite({
                     required
                     value={feeDob}
                     onChange={(e) => setFeeDob(e.target.value)}
-                    placeholder="Enter Date of Birth (e.g. DD-MM-YYYY)"
+                    placeholder="Enter Date of Birth (DD-MM-YYYY)"
                     className="w-full bg-slate-950/60 border border-slate-800 rounded-xl pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-emerald-550 placeholder-slate-600 font-mono"
                   />
                 </div>
@@ -2489,7 +2489,7 @@ export default function PublicWebsite({
                       required
                       value={searchRoll}
                       onChange={(e) => setSearchRoll(e.target.value)}
-                      placeholder="e.g. CO-2026-102 or GREENWOOD-S-12"
+                      placeholder="Type scholar roll number"
                       className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white uppercase font-mono font-bold focus:border-pink-550"
                     />
                   </div>

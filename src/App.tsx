@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { playAnnouncementSound } from "./utils/sound";
 import {
   GraduationCap,
   ShieldAlert,
@@ -11,6 +12,7 @@ import {
   CheckSquare,
   Sparkles,
   Lock,
+  Clock,
   LogOut,
   Key,
   UserCheck,
@@ -31,6 +33,9 @@ import {
   Compass,
   Bookmark,
   QrCode,
+  Download,
+  Copy,
+  Share2,
   School as SchoolIcon,
   Bell,
   BellRing,
@@ -49,6 +54,17 @@ import {
   Globe,
   Bot,
   Send,
+  MessageSquare,
+  Minimize2,
+  MapPin,
+  Navigation,
+  LocateFixed,
+  ExternalLink,
+  Map as MapIcon,
+  ShoppingBag,
+  Headphones,
+  Boxes,
+  Truck,
 } from "lucide-react";
 
 import {
@@ -77,6 +93,15 @@ import {
   CounsellingSlot,
   AdmissionRequest,
   Verifier,
+  Course,
+  StoreItem,
+  StoreOrder,
+  StudyHubCenter,
+  ExamSubject,
+  ExamForm,
+  ExamStudentMarksheet,
+  BranchPIN,
+  ExamPortalSettings,
 } from "./types";
 import {
   initialBatches,
@@ -88,6 +113,12 @@ import {
   initialFees,
   initialSupportMessages,
   initialLeads,
+  initialStudyHubCenters,
+  initialExamSubjects,
+  initialExamSettings,
+  initialExamForms,
+  initialExamMarksheets,
+  initialBranchPINs,
 } from "./data";
 
 import AdminDashboard from "./components/AdminDashboard";
@@ -98,18 +129,64 @@ import PrincipalDashboard from "./components/PrincipalDashboard";
 import AdmissionOfficeDashboard from "./components/AdmissionOfficeDashboard";
 import VerifierDashboard from "./components/VerifierDashboard";
 import PublicWebsite from "./components/PublicWebsite";
-import ReactMarkdown from "react-markdown";
+import CourseManager from "./components/CourseManager";
+import StoreView from "./components/StoreView";
+import InventoryManager from "./components/InventoryManager";
+import OnboardingTutorial from "./components/OnboardingTutorial";
+import StudentExamPortal from "./components/exam/StudentExamPortal";
+import TeacherExamPortal from "./components/exam/TeacherExamPortal";
+import AdminExamPortal from "./components/exam/AdminExamPortal";
+import { Wifi, WifiOff, Database } from "lucide-react";
+
 
 import { db, auth } from "./firebase";
 import { signInAnonymously, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import {
   doc,
   setDoc,
+  updateDoc,
   deleteDoc,
   collection,
   onSnapshot,
   getDocs,
 } from "firebase/firestore";
+import {
+  getDeletedIds,
+  markIdAsDeleted,
+  clearDeletedId,
+  isIdDeleted,
+  areItemsEqual,
+  areItemListsEqual,
+  sanitizeForFirestore,
+} from "./lib/firestoreSync";
+
+/**
+ * Robust initial state loader that guarantees deleted items are NEVER restored
+ * from stale localStorage cache or mock fallback arrays.
+ */
+function loadInitialCollectionState<T extends { id: string }>(
+  collectionName: string,
+  fallback: T[],
+  storageKey?: string,
+): T[] {
+  const deletedIds = getDeletedIds(collectionName);
+  const key = storageKey || "co_" + collectionName.toLowerCase();
+  let items: T[] = fallback;
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        items = parsed;
+      }
+    }
+  } catch (e) {
+    // fallback
+  }
+  return (items || []).filter(
+    (item) => item && item.id && !deletedIds.has(String(item.id))
+  );
+}
 
 export function getRandomAvatarUrl(name: string): string {
   const images = [
@@ -159,35 +236,13 @@ export default function App() {
   const [digitalDate, setDigitalDate] = useState<string>("");
 
   // Unified Sidebar Feature States
-  const [adminActiveTab, setAdminActiveTab] = useState<any>("overview");
-  const [teacherActiveTab, setTeacherActiveTab] = useState<any>("overview");
-  const [studentActiveTab, setStudentActiveTab] = useState<any>("syllabus");
+  const [adminActiveTab, setAdminActiveTab] = useState<any>("courses");
+  const [teacherActiveTab, setTeacherActiveTab] = useState<any>("courses");
+  const [studentActiveTab, setStudentActiveTab] = useState<any>("courses");
   const [admissionActiveTab, setAdmissionActiveTab] = useState<any>("leads");
   const [feeActiveTab, setFeeActiveTab] = useState<any>("ledger");
   const [principalActiveTab, setPrincipalActiveTab] = useState<any>("overview");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-
-  // --- CHATBOT WIDGET STATE ---
-  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
-  const [chatModel, setChatModel] = useState<string>("gemini-3.5-flash");
-  const [chatbotRole, setChatbotRole] = useState<string>("tutor");
-  const [chatMessage, setChatMessage] = useState<string>("");
-  const [chatHistory, setChatHistory] = useState<{ role: "user" | "model"; content: string; timestamp: string }[]>([
-    {
-      role: "model",
-      content: "Hello! I am your AI Academic Companion. How can I assist you with your physics concepts, study habits, or Study Hub Admissions today?",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    },
-  ]);
-  const [isChatSending, setIsChatSending] = useState<boolean>(false);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [chatHistory, isChatOpen]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -553,25 +608,104 @@ export default function App() {
     document.documentElement.classList.remove("dark");
   }, []);
 
-  const isDarkMode = false;
+  // PWA & Web App Install Prompt State
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
+  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
+  const [isOnlineState, setIsOnlineState] = useState<boolean>(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
+
+  // First-time login tutorial auto-trigger
+  useEffect(() => {
+    if (isLoggedIn && loggedInUserId) {
+      const tutorialKey = `studyhub_tutorial_seen_${role}_${loggedInUserId}`;
+      const hasSeen = localStorage.getItem(tutorialKey);
+      if (!hasSeen) {
+        const timer = setTimeout(() => {
+          setIsTutorialOpen(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isLoggedIn, role, loggedInUserId]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnlineState(true);
+    };
+    const handleOffline = () => {
+      setIsOnlineState(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const [isAppInstalled, setIsAppInstalled] = useState<boolean>(false);
+  const [copiedLinkSuccess, setCopiedLinkSuccess] = useState<boolean>(false);
+
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredInstallPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setDeferredInstallPrompt(null);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setIsAppInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === "accepted") {
+        setIsAppInstalled(true);
+      }
+      setDeferredInstallPrompt(null);
+    } else {
+      setIsInstallModalOpen(true);
+    }
+  };
 
   // Dynamic admin accounts list
-  const [admins, setAdmins] = useState<AdminUser[]>(() => {
-    const saved = localStorage.getItem("co_admins");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "admin_1",
-            name: "Administrator",
-            username: "admin",
-            email: "admin@coachinghub.edu",
-            employeeCode: "MPDIGI000",
-            password: "12112006",
-            status: "Active",
-          },
-        ];
-  });
+  const [admins, setAdmins] = useState<AdminUser[]>(() =>
+    loadInitialCollectionState(
+      "admins",
+      [
+        {
+          id: "admin_1",
+          name: "Administrator",
+          username: "admin",
+          email: "admin@coachinghub.edu",
+          employeeCode: "MPDIGI000",
+          password: "12112006",
+          status: "Active",
+        },
+      ],
+      "co_admins"
+    )
+  );
 
   // State engines loaded from LocalStorage if available for persistence
   const [securityAlerts, setSecurityAlerts] = useState<SecuritySOSAlert[]>(
@@ -582,36 +716,7 @@ export default function App() {
           return JSON.parse(saved);
         } catch (e) {}
       }
-      return [
-        {
-          id: "sec_alert_1",
-          senderName: "Proctor Faculty - Labs Desk",
-          senderRole: "Teacher",
-          senderId: "teacher_1",
-          severity: "Standard",
-          type: "Security Issue",
-          location: "Computer Lab B - Row 4",
-          details:
-            "Unidentified login attempt detected on workstation LAB-PC-12 using a suspended roll number. Keyboard input disabled.",
-          timestamp: "2026-06-18T10:14:00Z",
-          resolved: true,
-          resolvedBy: "Admin - Central Service",
-          comments: "Supervised session keys reset and desk unlocked manually.",
-        },
-        {
-          id: "sec_alert_2",
-          senderName: "Academic Cashier Desk",
-          senderRole: "FeeManager",
-          senderId: "feeman_1",
-          severity: "High",
-          type: "Panic Alarm",
-          location: "Main Finance Office - Desk 2",
-          details:
-            "Cashier triggered secure cash-drawer dual-authorization bypass due to system login mismatch on roll card scan.",
-          timestamp: "2026-06-19T02:11:00Z",
-          resolved: false,
-        },
-      ];
+      return [];
     },
   );
 
@@ -622,39 +727,7 @@ export default function App() {
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return [
-      {
-        id: "CR-2026-001",
-        studentName: "Aarav Sharma",
-        studentRollNo: "SCH-101",
-        email: "aarav.sharma@gmail.com",
-        phone: "+91 98765 43210",
-        topic: "Academic Stress",
-        description: "Feeling overwhelmed by the physics syllabus for IIT-JEE and need a proper guidance schedule.",
-        status: "Pending",
-        tempUsername: "aarav_counsel",
-        tempPassword: "pwd_8137f",
-        createdAt: "2026-07-02T10:15:00Z",
-        scheduledAt: "2026-07-03T11:00",
-        notes: ""
-      },
-      {
-        id: "CR-2026-002",
-        studentName: "Priya Patel",
-        studentRollNo: "SCH-105",
-        email: "priya.p@coaching.edu",
-        phone: "+91 87654 32109",
-        topic: "Exam Anxiety",
-        description: "Need help building focus and coping with fear of exams.",
-        status: "Active",
-        tempUsername: "priya_counsel",
-        tempPassword: "pwd_active99",
-        createdAt: "2026-07-01T09:30:00Z",
-        scheduledAt: "2026-07-02T14:30",
-        notes: "Assigned counselor spoke on stress busters. Scheduled a follow-up review.",
-        meetingLink: "https://meet.google.com/abc-defg-hij"
-      }
-    ];
+    return [];
   });
 
   useEffect(() => {
@@ -668,15 +741,7 @@ export default function App() {
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return [
-      { id: "slot-1", datetime: "2026-07-03T10:00", isBooked: false },
-      { id: "slot-2", datetime: "2026-07-03T11:00", isBooked: true, bookedByRequestId: "CR-2026-001" },
-      { id: "slot-3", datetime: "2026-07-03T14:30", isBooked: true, bookedByRequestId: "CR-2026-002" },
-      { id: "slot-4", datetime: "2026-07-04T09:00", isBooked: false },
-      { id: "slot-5", datetime: "2026-07-04T11:30", isBooked: false },
-      { id: "slot-6", datetime: "2026-07-04T15:00", isBooked: false },
-      { id: "slot-7", datetime: "2026-07-05T10:00", isBooked: false },
-    ];
+    return [];
   });
 
   useEffect(() => {
@@ -690,172 +755,255 @@ export default function App() {
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return [
-      {
-        id: "ADM-2026-001",
-        studentName: "Aarav Sharma",
-        email: "aarav.sharma@example.com",
-        mobileNumber: "9876543210",
-        dob: "2010-05-15",
-        fatherName: "Rajesh Sharma",
-        motherName: "Sunita Sharma",
-        batchId: "batch-1",
-        teacherId: "teacher_1",
-        teacherName: "Dr. Alok Verma",
-        status: "Approved",
-        createdAt: "2026-07-02T09:30:00.000Z",
-        approvedAt: "2026-07-02T10:15:00.000Z",
-        rollNo: "R-2026-101",
-        enrollmentNo: "EN-2026-001"
-      },
-      {
-        id: "ADM-2026-002",
-        studentName: "Ananya Patel",
-        email: "ananya.patel@example.com",
-        mobileNumber: "9123456789",
-        dob: "2009-11-22",
-        fatherName: "Kishore Patel",
-        motherName: "Meena Patel",
-        batchId: "batch-2",
-        teacherId: "teacher_1",
-        teacherName: "Dr. Alok Verma",
-        status: "Pending",
-        createdAt: "2026-07-02T12:45:00.000Z"
-      }
-    ];
+    return [];
   });
 
   useEffect(() => {
     localStorage.setItem("co_admission_requests", JSON.stringify(admissionRequests));
   }, [admissionRequests]);
 
-  const [batches, setBatches] = useState<Batch[]>(() => {
-    const saved = localStorage.getItem("co_batches");
-    return saved ? JSON.parse(saved) : initialBatches;
-  });
-
-  const [teachers, setTeachers] = useState<Teacher[]>(() => {
-    const saved = localStorage.getItem("co_teachers");
-    return saved ? JSON.parse(saved) : initialTeachers;
-  });
-
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem("co_students");
-    return saved ? JSON.parse(saved) : initialStudents;
-  });
-
-  const [lessons, setLessons] = useState<Lesson[]>(() => {
-    const saved = localStorage.getItem("co_lessons");
-    return saved ? JSON.parse(saved) : initialLessons;
-  });
-
-  const [tests, setTests] = useState<Test[]>(() => {
-    const saved = localStorage.getItem("co_tests");
-    return saved ? JSON.parse(saved) : initialTests;
-  });
-
-  const [schools, setSchools] = useState<School[]>(() => {
-    const saved = localStorage.getItem("co_schools");
+  // Dynamic Courses Engine
+  const [courses, setCourses] = useState<Course[]>(() => {
+    const saved = localStorage.getItem("co_courses");
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // ignore
-      }
+      try { return JSON.parse(saved); } catch (e) {}
     }
     return [
       {
-        id: "school_1",
-        name: "Greenwood International School",
-        code: "GREENWOOD",
-        address: "7th Avenue, Elite Enclave, New Delhi",
-        principalName: "Dr. Ramesh Pandey",
-        principalEmail: "principal@greenwood.com",
-        principalPassword: "principal123",
-        principalEmployeeCode: "MPDIGI100",
-        status: "Active",
-        registeredAt: "2026-06-16T12:00:00Z",
+        id: "course_1",
+        title: "JEE Advanced Physics & Quantum Mechanics Mastery",
+        description: "Complete live batch covering Mechanics, Electrodynamics, Quantum Physics and Advanced Numerical Solving with mentor guidance.",
+        mentorName: "Dr. Richard Feynman",
+        duration: "12 Months",
+        price: 4999,
+        isPublished: true,
+        isBlocked: false,
+        demoVideoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        createdAt: "2026-07-20",
+        sections: [
+          {
+            id: "sec_1",
+            title: "Module 1: Rotational Dynamics & Gravitation",
+            order: 1,
+            description: "Torque, Angular Momentum, Gyroscopic Motion and Planetary Mechanics"
+          },
+          {
+            id: "sec_2",
+            title: "Module 2: Electrostatics & Magnetism",
+            order: 2,
+            description: "Gauss Law, Capacitances, Ampere Law and Electromagnetic Induction"
+          }
+        ],
+        announcements: [
+          { id: "ann_1", title: "Welcome Live Orientation Batch 2026", content: "Welcome students! Live problem solving session is scheduled every Monday at 5 PM.", createdAt: "2026-07-25" }
+        ],
+        liveClasses: [
+          { id: "live_1", title: "Live Session: Rigid Body Dynamics & Torque Numericals", scheduledAt: "Mon, Wed, Fri @ 5:00 PM IST", meetingOrVideoUrl: "https://meet.google.com/abc-defg-hij", isLive: true }
+        ],
+        classNotes: [
+          { id: "cn_1", title: "Formula Sheet - Rotational Mechanics.pdf", fileUrlOrContent: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", uploadedAt: "2026-07-21" },
+          { id: "cn_2", title: "HC Verma Solutions Chapter 1-10.pdf", fileUrlOrContent: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", uploadedAt: "2026-07-22" }
+        ],
+        doubts: [
+          { id: "d_1", studentId: "s1", studentName: "Aarav Sharma", message: "Sir, in question 4 of sheet 2, how do we apply pseudo force in rotating frame?", reply: "In rotating frame, add centrifugal force m*omega^2*r radially outwards.", repliedBy: "Dr. Richard Feynman", timestamp: "2026-07-25 14:30" }
+        ]
       },
       {
-        id: "school_2",
-        name: "St. Xavier Academy",
-        code: "XAVIER",
-        address: "M.G. Road, South Mumbai",
-        principalName: "Sister Mary D'Souza",
-        principalEmail: "mary@xavier.edu",
-        principalPassword: "mary123",
-        principalEmployeeCode: "MPDIGI200",
-        status: "Active",
-        registeredAt: "2026-06-16T12:00:00Z",
-      },
+        id: "course_2",
+        title: "NEET Organic Chemistry Masterclass 2026",
+        description: "Master reaction mechanisms, named reactions, biomolecules and NCERT deep-dive with daily notes and doubt resolution.",
+        mentorName: "Prof. Marie Curie",
+        duration: "8 Months",
+        price: 3499,
+        isPublished: true,
+        isBlocked: false,
+        demoVideoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        createdAt: "2026-07-22",
+        sections: [
+          {
+            id: "sec_21",
+            title: "Module 1: Hydrocarbons & Reaction Mechanisms",
+            order: 1,
+            description: "Electrophilic Addition, Nucleophilic Substitution, Alkanes, Alkenes & Alkynes"
+          }
+        ],
+        announcements: [
+          { id: "ann_21", title: "NCERT Highlight PDF Ready", content: "NCERT line-by-line reading PDF updated in notes section.", createdAt: "2026-07-24" }
+        ],
+        liveClasses: [
+          { id: "live_21", title: "Live Session: Aldehydes, Ketones & Carboxylic Acids", scheduledAt: "Tue, Thu, Sat @ 6:00 PM IST", meetingOrVideoUrl: "https://meet.google.com/xyz-uvwx-rst", isLive: false }
+        ],
+        classNotes: [
+          { id: "cn_21", title: "Organic Named Reactions Cheat Sheet.pdf", fileUrlOrContent: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", uploadedAt: "2026-07-20" }
+        ],
+        doubts: []
+      }
     ];
   });
+
+  useEffect(() => {
+    localStorage.setItem("co_courses", JSON.stringify(courses));
+  }, [courses]);
+
+  // Dynamic Store Items Engine (Books, Stationery)
+  const [storeItems, setStoreItems] = useState<StoreItem[]>(() => {
+    const saved = localStorage.getItem("co_store_items");
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [
+      {
+        id: "book_1",
+        name: "Study HUB Physics Master Volume 1 (Class 11 & 12)",
+        type: "book",
+        description: "Comprehensive theory, 3000+ solved numericals & previous years questions for JEE/NEET.",
+        price: 499,
+        image: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400&q=80",
+        inStock: true,
+        authorOrBrand: "Study HUB Academic Press"
+      },
+      {
+        id: "book_2",
+        name: "Organic & Inorganic Chemistry Reaction Handbook",
+        type: "book",
+        description: "Color-coded mind maps, named reactions summary and NCERT key highlights.",
+        price: 399,
+        image: "https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400&q=80",
+        inStock: true,
+        authorOrBrand: "Study HUB Faculty Team"
+      },
+      {
+        id: "stat_1",
+        name: "Study HUB Premium Student Study Kit",
+        type: "stationery",
+        description: "High-quality spiral notebook set (500 pages), gel pens, highlighters, sticky notes & geometry set.",
+        price: 299,
+        image: "https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=400&q=80",
+        inStock: true,
+        authorOrBrand: "Study HUB Essentials"
+      },
+      {
+        id: "stat_2",
+        name: "Study HUB Scientific Calculator & Formula Ruler Set",
+        type: "stationery",
+        description: "Durable solar-powered scientific calculator with stainless steel formula ruler and pouch.",
+        price: 699,
+        image: "https://images.unsplash.com/photo-1611125832047-1d7ad1e8e48f?w=400&q=80",
+        inStock: true,
+        authorOrBrand: "Study HUB Tech Labs"
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("co_store_items", JSON.stringify(storeItems));
+  }, [storeItems]);
+
+  // Dynamic Store Orders (Cash on Delivery Orders)
+  const [storeOrders, setStoreOrders] = useState<StoreOrder[]>(() =>
+    loadInitialCollectionState("storeOrders", [], "co_store_orders")
+  );
+
+  useEffect(() => {
+    localStorage.setItem("co_store_orders", JSON.stringify(storeOrders));
+  }, [storeOrders]);
+
+  // Physical Study Hub Centers
+  const [studyHubCenters, setStudyHubCenters] = useState<StudyHubCenter[]>(() =>
+    loadInitialCollectionState(
+      "studyHubCenters",
+      initialStudyHubCenters,
+      "co_study_hub_centers"
+    )
+  );
+
+  useEffect(() => {
+    localStorage.setItem("co_study_hub_centers", JSON.stringify(studyHubCenters));
+  }, [studyHubCenters]);
+
+  const [batches, setBatches] = useState<Batch[]>(() =>
+    loadInitialCollectionState("batches", initialBatches, "co_batches")
+  );
+
+  const [teachers, setTeachers] = useState<Teacher[]>(() =>
+    loadInitialCollectionState("teachers", initialTeachers, "co_teachers")
+  );
+
+  const [students, setStudents] = useState<Student[]>(() =>
+    loadInitialCollectionState("students", initialStudents, "co_students")
+  );
+
+  const [lessons, setLessons] = useState<Lesson[]>(() =>
+    loadInitialCollectionState("lessons", initialLessons, "co_lessons")
+  );
+
+  const [tests, setTests] = useState<Test[]>(() =>
+    loadInitialCollectionState("tests", initialTests, "co_tests")
+  );
+
+  const [schools, setSchools] = useState<School[]>(() =>
+    loadInitialCollectionState("schools", [], "co_schools")
+  );
 
   useEffect(() => {
     localStorage.setItem("co_schools", JSON.stringify(schools));
   }, [schools]);
 
-  const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
-    const saved = localStorage.getItem("co_announcements");
-    return saved ? JSON.parse(saved) : initialAnnouncements;
-  });
-
-  const [onlineAnnouncements, setOnlineAnnouncements] = useState<OnlineAnnouncement[]>(() => {
-    const saved = localStorage.getItem("co_online_announcements");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [fees, setFees] = useState<FeeInvoice[]>(() => {
-    const saved = localStorage.getItem("co_fees");
-    return saved ? JSON.parse(saved) : initialFees;
-  });
-
-  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>(
-    () => {
-      const saved = localStorage.getItem("co_support_messages");
-      return saved ? JSON.parse(saved) : initialSupportMessages;
-    },
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() =>
+    loadInitialCollectionState("announcements", initialAnnouncements, "co_announcements")
   );
 
-  const [feeManagers, setFeeManagers] = useState<FeeManager[]>(() => {
-    const saved = localStorage.getItem("co_fee_managers");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "fm_default",
-            name: "Devid Pandey (Internal CPA)",
-            username: "feeman",
-            email: "accounts@coachinghub.edu",
-            employeeCode: "MPDIGI201",
-            status: "Active",
-            password: "fee12112006",
-          },
-        ];
-  });
+  const [onlineAnnouncements, setOnlineAnnouncements] = useState<OnlineAnnouncement[]>(() =>
+    loadInitialCollectionState("onlineAnnouncements", [], "co_online_announcements")
+  );
+
+  const [fees, setFees] = useState<FeeInvoice[]>(() =>
+    loadInitialCollectionState("feeInvoices", initialFees, "co_fees")
+  );
+
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>(() =>
+    loadInitialCollectionState("supportMessages", initialSupportMessages, "co_support_messages")
+  );
+
+  const [feeManagers, setFeeManagers] = useState<FeeManager[]>(() =>
+    loadInitialCollectionState(
+      "feeManagers",
+      [
+        {
+          id: "fm_default",
+          name: "Devid Pandey (Internal CPA)",
+          username: "feeman",
+          email: "accounts@coachinghub.edu",
+          employeeCode: "MPDIGI201",
+          status: "Active",
+          password: "fee12112006",
+        },
+      ],
+      "co_fee_managers"
+    )
+  );
 
   useEffect(() => {
     localStorage.setItem("co_fee_managers", JSON.stringify(feeManagers));
   }, [feeManagers]);
 
-  const [admissionOfficers, setAdmissionOfficers] = useState<
-    AdmissionOfficer[]
-  >(() => {
-    const saved = localStorage.getItem("co_admission_officers");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "admission_desk_1",
-            name: "Admissions Desk Staff",
-            username: "admission",
-            email: "admission@mpdigitalschool.com",
-            employeeCode: "MPDIGI301",
-            status: "Active",
-            password: "admission12112006",
-          },
-        ];
-  });
+  const [admissionOfficers, setAdmissionOfficers] = useState<AdmissionOfficer[]>(() =>
+    loadInitialCollectionState(
+      "admissionOfficers",
+      [
+        {
+          id: "admission_desk_1",
+          name: "Admissions Desk Staff",
+          username: "admission",
+          email: "admission@mpdigitalschool.com",
+          employeeCode: "MPDIGI301",
+          status: "Active",
+          password: "admission12112006",
+        },
+      ],
+      "co_admission_officers"
+    )
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -864,21 +1012,22 @@ export default function App() {
     );
   }, [admissionOfficers]);
 
-  const [verifiers, setVerifiers] = useState<Verifier[]>(() => {
-    const saved = localStorage.getItem("co_verifiers");
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: "v_default",
-            name: "Govind Kumar (Chief Verifier)",
-            username: "verify1",
-            employeeCode: "VRF401",
-            status: "Active",
-            password: "verify123",
-          },
-        ];
-  });
+  const [verifiers, setVerifiers] = useState<Verifier[]>(() =>
+    loadInitialCollectionState(
+      "verifiers",
+      [
+        {
+          id: "v_default",
+          name: "Govind Kumar (Chief Verifier)",
+          username: "verify1",
+          employeeCode: "VRF401",
+          status: "Active",
+          password: "verify123",
+        },
+      ],
+      "co_verifiers"
+    )
+  );
 
   useEffect(() => {
     localStorage.setItem("co_verifiers", JSON.stringify(verifiers));
@@ -915,47 +1064,9 @@ export default function App() {
     return "";
   };
 
-  const [computerDesks, setComputerDesks] = useState<ComputerDesk[]>(() => {
-    const saved = localStorage.getItem("co_computer_desks");
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: "desk_1",
-        uniqueCode: "LAB-PC-01",
-        ipAddress: "192.168.1.101",
-        status: "Available",
-        roomNumber: "Lab Alpha",
-      },
-      {
-        id: "desk_2",
-        uniqueCode: "LAB-PC-02",
-        ipAddress: "192.168.1.102",
-        status: "Available",
-        roomNumber: "Lab Alpha",
-      },
-      {
-        id: "desk_3",
-        uniqueCode: "LAB-PC-03",
-        ipAddress: "192.168.1.103",
-        status: "Available",
-        roomNumber: "Lab Alpha",
-      },
-      {
-        id: "desk_4",
-        uniqueCode: "LAB-PC-04",
-        ipAddress: "192.168.1.104",
-        status: "Available",
-        roomNumber: "Lab Beta",
-      },
-      {
-        id: "desk_5",
-        uniqueCode: "LAB-PC-05",
-        ipAddress: "192.168.1.105",
-        status: "Available",
-        roomNumber: "Lab Beta",
-      },
-    ];
-  });
+  const [computerDesks, setComputerDesks] = useState<ComputerDesk[]>(() =>
+    loadInitialCollectionState("computerDesks", [], "co_computer_desks")
+  );
 
   const [testSubmissions, setTestSubmissions] = useState<TestSubmission[]>(
     () => {
@@ -964,10 +1075,9 @@ export default function App() {
     },
   );
 
-  const [leads, setLeads] = useState<ContactLead[]>(() => {
-    const saved = localStorage.getItem("co_contact_leads");
-    return saved ? JSON.parse(saved) : initialLeads;
-  });
+  const [leads, setLeads] = useState<ContactLead[]>(() =>
+    loadInitialCollectionState("contactLeads", initialLeads, "co_contact_leads")
+  );
 
   useEffect(() => {
     localStorage.setItem("co_contact_leads", JSON.stringify(leads));
@@ -977,58 +1087,12 @@ export default function App() {
     AttendanceRecord[]
   >(() => {
     const saved = localStorage.getItem("co_attendance_records");
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: "at_1",
-        studentId: "s_1",
-        date: "2026-06-05",
-        status: "Present",
-        batchId: "b_1",
-      },
-      {
-        id: "at_2",
-        studentId: "s_2",
-        date: "2026-06-05",
-        status: "Present",
-        batchId: "b_1",
-      },
-      {
-        id: "at_3",
-        studentId: "s_3",
-        date: "2026-06-05",
-        status: "Absent",
-        batchId: "b_1",
-      },
-      {
-        id: "at_4",
-        studentId: "s_1",
-        date: "2026-06-06",
-        status: "Present",
-        batchId: "b_2",
-      },
-      {
-        id: "at_5",
-        studentId: "s_5",
-        date: "2026-06-06",
-        status: "Present",
-        batchId: "b_1",
-      },
-      {
-        id: "at_6",
-        studentId: "s_5",
-        date: "2026-06-05",
-        status: "Present",
-        batchId: "b_1",
-      },
-      {
-        id: "at_7",
-        studentId: "s_5",
-        date: "2026-06-04",
-        status: "Absent",
-        batchId: "b_1",
-      },
-    ];
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
   });
 
   useEffect(() => {
@@ -1047,36 +1111,12 @@ export default function App() {
 
   const [publicBatches, setPublicBatches] = useState<PublicBatch[]>(() => {
     const saved = localStorage.getItem("co_public_batches");
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: "pb_1",
-        name: "Advanced Mathematics & Analytical Mechanics",
-        department: "IIT-JEE (Mains & Advanced)",
-        description:
-          "Deep-dives into coordinate geometry, core calculus integration, electromagnetism, and mechanics. Special focus on speed optimization tricks and board-level derivations.",
-        duration: "1 / 2 Year program",
-        isPublished: true,
-      },
-      {
-        id: "pb_2",
-        name: "Biology Crackers & Applied Organic Chemistry",
-        department: "NEET UG Elite Coaching",
-        description:
-          "Comprehensive training covers plant physiology, genetics algorithms, evolutionary taxonomy, inorganic reactions, and physical chemistry calculations.",
-        duration: "1 / 2 Year program",
-        isPublished: true,
-      },
-      {
-        id: "pb_3",
-        name: "Higher Secondary science & Computing Labs",
-        department: "Advanced Scientific Boards",
-        description:
-          "Nurtures high-school students for board toppers lists. Integrated support with our allotted desk computers of simulated programming assessments.",
-        duration: "Academic Year",
-        isPublished: true,
-      },
-    ];
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
   });
 
   useEffect(() => {
@@ -1088,36 +1128,12 @@ export default function App() {
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     const saved = localStorage.getItem("co_app_notifications");
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: "notif_1",
-        title: "Academic Syllabus Published & Live Class Schedules",
-        content:
-          "The academic board has finalized and published the Advanced Mathematics & Analytical Mechanics curriculum for the upcoming semester. Direct mock assessments are now live in the student labs. Please read the attached PDF guidelines for more instructions on final grading.",
-        senderName: "Principal Devashish",
-        senderRole: "principal",
-        timestamp: "2026-06-17 10:30 AM",
-        readBy: [],
-        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        attachmentName: "academic_syllabus_2026.pdf",
-        attachmentType: "pdf",
-      },
-      {
-        id: "notif_2",
-        title: "Lab Orientation Session Guidelines",
-        content:
-          "A walkthrough of our computer lab setups and terminal configurations is planned for tomorrow morning. Please log onto your desk and complete your APAAR ID registrations before attending.",
-        senderName: "Admin Command Unit",
-        senderRole: "admin",
-        timestamp: "2026-06-18 08:15 AM",
-        readBy: [],
-        attachmentName: "lab_orientation.png",
-        attachmentType: "image",
-        attachmentUrl:
-          "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=500",
-      },
-    ];
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
   });
 
   useEffect(() => {
@@ -1198,6 +1214,75 @@ export default function App() {
     localStorage.setItem("co_online_announcements", JSON.stringify(onlineAnnouncements));
   }, [onlineAnnouncements]);
 
+  // --- EXAM PORTAL STATES & REPOSITORIES ---
+  const [examSubjects, setExamSubjects] = useState<ExamSubject[]>(() =>
+    loadInitialCollectionState("examSubjects", initialExamSubjects, "co_exam_subjects")
+  );
+
+  const [examSettings, setExamSettings] = useState<ExamPortalSettings>(() => {
+    try {
+      const saved = localStorage.getItem("co_exam_settings");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return initialExamSettings;
+  });
+
+  const [examForms, setExamForms] = useState<ExamForm[]>(() =>
+    loadInitialCollectionState("examForms", initialExamForms, "co_exam_forms")
+  );
+
+  const [examMarksheets, setExamMarksheets] = useState<ExamStudentMarksheet[]>(() =>
+    loadInitialCollectionState("examResults", initialExamMarksheets, "co_exam_marksheets")
+  );
+
+  const [branchPINs, setBranchPINs] = useState<BranchPIN[]>(() =>
+    loadInitialCollectionState("branchPins", initialBranchPINs, "co_branch_pins")
+  );
+
+  useEffect(() => {
+    localStorage.setItem("co_exam_subjects", JSON.stringify(examSubjects));
+  }, [examSubjects]);
+
+  useEffect(() => {
+    localStorage.setItem("co_exam_settings", JSON.stringify(examSettings));
+  }, [examSettings]);
+
+  useEffect(() => {
+    localStorage.setItem("co_exam_forms", JSON.stringify(examForms));
+  }, [examForms]);
+
+  useEffect(() => {
+    localStorage.setItem("co_exam_marksheets", JSON.stringify(examMarksheets));
+  }, [examMarksheets]);
+
+  useEffect(() => {
+    localStorage.setItem("co_branch_pins", JSON.stringify(branchPINs));
+  }, [branchPINs]);
+
+  // Real-time Announcement Audio Alert Trigger
+  const isInitialAnnounceMount = useRef(true);
+  const prevAnnLengthRef = useRef(announcements.length);
+  const prevOnlineAnnLengthRef = useRef(onlineAnnouncements.length);
+
+  useEffect(() => {
+    if (isInitialAnnounceMount.current) {
+      isInitialAnnounceMount.current = false;
+      prevAnnLengthRef.current = announcements.length;
+      prevOnlineAnnLengthRef.current = onlineAnnouncements.length;
+      return;
+    }
+
+    if (
+      announcements.length > prevAnnLengthRef.current ||
+      onlineAnnouncements.length > prevOnlineAnnLengthRef.current
+    ) {
+      playAnnouncementSound();
+    }
+
+    prevAnnLengthRef.current = announcements.length;
+    prevOnlineAnnLengthRef.current = onlineAnnouncements.length;
+  }, [announcements, onlineAnnouncements]);
+
   useEffect(() => {
     localStorage.setItem("co_security_alerts", JSON.stringify(securityAlerts));
   }, [securityAlerts]);
@@ -1211,20 +1296,17 @@ export default function App() {
   }, [isLoggedIn, role, loggedInUserId, loggedInUserName]);
 
   // --- FIREBASE LIVE AND REAL-TIME SYNC ---
-  const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+  const [isFirebaseReady, setIsFirebaseReady] = useState(true);
 
   useEffect(() => {
     const performAuth = async () => {
       try {
         await signInAnonymously(auth);
         console.log("Firebase Anonymously Authenticated successfully.");
-        // Validate connection to database
-        const snap = await getDocs(collection(db, "schools")).catch(() => null);
-        setIsFirebaseReady(true);
       } catch (err) {
-        console.warn("Firebase auth/conn is offline/restricted. Offline local mode is active:", err);
-        setIsFirebaseReady(false);
+        console.warn("Firebase auth note: operating directly over Firestore rules.", err);
       }
+      setIsFirebaseReady(true);
     };
     performAuth();
   }, []);
@@ -1235,101 +1317,164 @@ export default function App() {
     setState: React.Dispatch<React.SetStateAction<T[]>>,
     isReady: boolean,
   ) {
+    const isHydratedRef = useRef(false);
     const prevRef = useRef<T[]>(state);
+    const pendingLocalWritesRef = useRef<Map<string, { item: T; time: number }>>(new Map());
 
-    // Sync to Firestore on local state changes
+    // 1. Sync from Firestore (listen to remote changes in real time!)
     useEffect(() => {
       if (!isReady) return;
 
-      const prev = prevRef.current;
+      const seededKey = "co_seeded_" + collectionName;
 
-      // 1. Find deleted items
-      const deleted = prev.filter((p) => !state.some((s) => s.id === p.id));
+      const unsubscribe = onSnapshot(
+        collection(db, collectionName),
+        async (snapshot) => {
+          const hasEverSeeded = localStorage.getItem(seededKey) === "true";
+          const currentDeletedIds = getDeletedIds(collectionName);
+
+          // Handle empty remote collection
+          if (snapshot.empty) {
+            const validInitial = (state || []).filter(
+              (item) => item && item.id && !currentDeletedIds.has(String(item.id))
+            );
+
+            if (!hasEverSeeded && validInitial.length > 0) {
+              // Initial seed ONLY on first execution for non-deleted items
+              localStorage.setItem(seededKey, "true");
+              for (const item of validInitial) {
+                try {
+                  const cleanItem = sanitizeForFirestore(item);
+                  await setDoc(doc(db, collectionName, String(item.id)), cleanItem, { merge: true });
+                } catch (e) {
+                  console.error(`[Firestore Sync] Seed failed for ${collectionName}/${item.id}:`, e);
+                }
+              }
+            } else {
+              localStorage.setItem(seededKey, "true");
+              // Remote collection is genuinely empty
+              if (prevRef.current.length > 0) {
+                prevRef.current = [];
+                setState([]);
+              }
+            }
+            isHydratedRef.current = true;
+            return;
+          }
+
+          localStorage.setItem(seededKey, "true");
+
+          // Extract remote items, ignoring any item that has been permanently deleted
+          const remoteMap = new Map<string, T>();
+          snapshot.docs.forEach((d) => {
+            const id = d.id;
+            if (currentDeletedIds.has(id)) {
+              // Permanently deleted: remove from cloud if resurrecting, never restore locally!
+              deleteDoc(doc(db, collectionName, id)).catch(() => {});
+              return;
+            }
+
+            const data = d.data();
+            const remoteItem = { id, ...data } as T;
+
+            // If user recently modified this item locally (within last 3.5s), preserve user's edits!
+            const pending = pendingLocalWritesRef.current.get(id);
+            if (pending && Date.now() - pending.time < 3500) {
+              remoteMap.set(id, { ...remoteItem, ...pending.item });
+            } else {
+              remoteMap.set(id, remoteItem);
+              if (pending) {
+                pendingLocalWritesRef.current.delete(id);
+              }
+            }
+          });
+
+          // Also keep any freshly created local items that haven't appeared in snapshot yet
+          pendingLocalWritesRef.current.forEach((pending, id) => {
+            if (!currentDeletedIds.has(id) && !remoteMap.has(id) && Date.now() - pending.time < 4000) {
+              remoteMap.set(id, pending.item);
+            }
+          });
+
+          const remoteItems = Array.from(remoteMap.values());
+
+          // Deep equality check: avoids needless state resets that revert user inputs or cause flicker
+          if (!areItemListsEqual(prevRef.current, remoteItems)) {
+            prevRef.current = remoteItems;
+            setState(remoteItems);
+          }
+
+          isHydratedRef.current = true;
+        },
+        (error) => {
+          console.error(`[Firestore Sync] Subscription failed on ${collectionName}:`, error);
+          isHydratedRef.current = true;
+        },
+      );
+
+      return () => unsubscribe();
+    }, [isReady, collectionName, setState]);
+
+    // 2. Sync to Firestore on local state changes (additions, modifications, deletions)
+    useEffect(() => {
+      if (!isReady || !isHydratedRef.current) return;
+
+      const prev = prevRef.current || [];
+      const currentList = state || [];
+      const currentDeletedIds = getDeletedIds(collectionName);
+
+      // Sanity check: Ensure state never contains items that were permanently marked as deleted
+      const filteredCurrent = currentList.filter((s) => !currentDeletedIds.has(String(s.id)));
+      if (filteredCurrent.length !== currentList.length) {
+        setState(filteredCurrent);
+        return;
+      }
+
+      // 1. Find deleted items (items in prev that are no longer in currentList)
+      const deleted = prev.filter((p) => !currentList.some((s) => String(s.id) === String(p.id)));
       deleted.forEach(async (item) => {
+        const idStr = String(item.id);
+        markIdAsDeleted(collectionName, idStr);
+        pendingLocalWritesRef.current.delete(idStr);
         try {
-          await deleteDoc(doc(db, collectionName, item.id));
-          console.log(`[Firestore Sync] Deleted ${collectionName}/${item.id}`);
+          await deleteDoc(doc(db, collectionName, idStr));
+          console.log(`[Firestore Sync] Permanently deleted ${collectionName}/${idStr}`);
         } catch (err) {
           console.error(
-            `[Firestore Sync] Error deleting ${collectionName}/${item.id}:`,
+            `[Firestore Sync] Error deleting ${collectionName}/${idStr}:`,
             err,
           );
         }
       });
 
       // 2. Find added or changed items
-      const changed = state.filter((s) => {
-        const p = prev.find((x) => x.id === s.id);
-        if (!p) return true; // Newly added
-        return JSON.stringify(p) !== JSON.stringify(s); // Updated
+      const changed = currentList.filter((s) => {
+        if (currentDeletedIds.has(String(s.id))) return false;
+        const prevItem = prev.find((x) => String(x.id) === String(s.id));
+        if (!prevItem) return true; // Newly added
+        return !areItemsEqual(prevItem, s); // Updated
       });
 
       changed.forEach(async (item) => {
+        const idStr = String(item.id);
+        if (currentDeletedIds.has(idStr)) return;
+
+        pendingLocalWritesRef.current.set(idStr, { item, time: Date.now() });
         try {
-          await setDoc(doc(db, collectionName, item.id), item);
-          console.log(`[Firestore Sync] Saved ${collectionName}/${item.id}`);
+          const cleanItem = sanitizeForFirestore(item);
+          await setDoc(doc(db, collectionName, idStr), cleanItem, { merge: true });
+          console.log(`[Firestore Sync] Saved ${collectionName}/${idStr}`);
         } catch (err) {
           console.error(
-            `[Firestore Sync] Error saving ${collectionName}/${item.id}:`,
+            `[Firestore Sync] Error saving ${collectionName}/${idStr}:`,
             err,
           );
         }
       });
 
       // Update ref
-      prevRef.current = state;
+      prevRef.current = currentList;
     }, [state, isReady, collectionName]);
-
-    // Sync from Firestore (listen to remote changes in real time!)
-    useEffect(() => {
-      if (!isReady) return;
-
-      const unsubscribe = onSnapshot(
-        collection(db, collectionName),
-        (snapshot) => {
-          // If Firestore collection is completely empty, seed it once with the initial state
-          if (snapshot.empty && state.length > 0) {
-            state.forEach(async (item) => {
-              try {
-                await setDoc(doc(db, collectionName, item.id), item);
-              } catch (e) {
-                console.error(
-                  `[Firestore Sync] Seed failed for ${collectionName}/${item.id}`,
-                  e,
-                );
-              }
-            });
-            return;
-          }
-
-          const remoteItems: T[] = [];
-          snapshot.docs.forEach((d) => {
-            remoteItems.push({ id: d.id, ...d.data() } as T);
-          });
-
-          // Sort by id for deterministic comparison
-          const sortedRemote = [...remoteItems].sort((a, b) =>
-            a.id.localeCompare(b.id),
-          );
-          const sortedLocal = [...prevRef.current].sort((a, b) =>
-            a.id.localeCompare(b.id),
-          );
-
-          if (JSON.stringify(sortedLocal) !== JSON.stringify(sortedRemote)) {
-            prevRef.current = remoteItems;
-            setState(remoteItems);
-          }
-        },
-        (error) => {
-          console.error(
-            `[Firestore Sync] Subscription failed on ${collectionName}:`,
-            error,
-          );
-        },
-      );
-
-      return () => unsubscribe();
-    }, [isReady, collectionName, setState]);
   }
 
   // Bind individual state lists to live collection subscriptions
@@ -1339,6 +1484,10 @@ export default function App() {
   useFirestoreSync("batches", batches, setBatches, isFirebaseReady);
   useFirestoreSync("lessons", lessons, setLessons, isFirebaseReady);
   useFirestoreSync("tests", tests, setTests, isFirebaseReady);
+  useFirestoreSync("courses", courses, setCourses, isFirebaseReady);
+  useFirestoreSync("storeItems", storeItems, setStoreItems, isFirebaseReady);
+  useFirestoreSync("storeOrders", storeOrders, setStoreOrders, isFirebaseReady);
+  useFirestoreSync("studyHubCenters", studyHubCenters, setStudyHubCenters, isFirebaseReady);
   useFirestoreSync(
     "announcements",
     announcements,
@@ -1433,6 +1582,10 @@ export default function App() {
     setAuthorizedDevices,
     isFirebaseReady,
   );
+  useFirestoreSync("examForms", examForms, setExamForms, isFirebaseReady);
+  useFirestoreSync("examSubjects", examSubjects, setExamSubjects, isFirebaseReady);
+  useFirestoreSync("examResults", examMarksheets, setExamMarksheets, isFirebaseReady);
+  useFirestoreSync("branchPins", branchPINs, setBranchPINs, isFirebaseReady);
 
   // --- USER PROFILE MODAL STATE AND UPDATE HANDLERS ---
   const [profileModalMode, setProfileModalMode] = useState<
@@ -1540,14 +1693,86 @@ export default function App() {
   const [showOverridePassword, setShowOverridePassword] = useState(false);
 
   // Guest Dashboard states (For unauthenticated public routes)
-  const [guestActiveTab, setGuestActiveTab] = useState<"login" | "marksheet" | "schools" | "announcements">("login");
+  const [guestActiveTab, setGuestActiveTab] = useState<"login" | "marksheet" | "nearby" | "announcements">("login");
   const [guestMarksheetRollNo, setGuestMarksheetRollNo] = useState("");
   const [guestMarksheetResult, setGuestMarksheetResult] = useState<Student | null>(null);
   const [guestMarksheetError, setGuestMarksheetError] = useState("");
   const [guestSchoolSearch, setGuestSchoolSearch] = useState("");
   const [selectedGuestSchool, setSelectedGuestSchool] = useState<School | null>(null);
 
-  const [showWelcomePortal, setShowWelcomePortal] = useState<boolean>(true);
+  // Geolocation & Nearby Centers states
+  const [locationStatus, setLocationStatus] = useState<"idle" | "locating" | "granted" | "denied" | "unsupported">("idle");
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationErrorMsg, setLocationErrorMsg] = useState<string>("");
+  const [nearbySearchQuery, setNearbySearchQuery] = useState<string>("");
+  const [maxRadiusKm, setMaxRadiusKm] = useState<number>(500);
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus("unsupported");
+      setLocationErrorMsg("Geolocation is not supported by your browser.");
+      return;
+    }
+    setLocationStatus("locating");
+    setLocationErrorMsg("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserCoords({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocationStatus("granted");
+      },
+      (error) => {
+        setLocationStatus("denied");
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationErrorMsg("Location access was denied. Please grant location access in your browser settings to search nearby centers.");
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          setLocationErrorMsg("Location information is currently unavailable.");
+        } else if (error.code === error.TIMEOUT) {
+          setLocationErrorMsg("Location request timed out. Please try again.");
+        } else {
+          setLocationErrorMsg("Failed to retrieve your location.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  };
+
+  const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) *
+        Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c * 10) / 10;
+  };
+
+  const getSchoolCoordinates = (school: School): { lat: number; lng: number } => {
+    if (school.lat !== undefined && school.lng !== undefined) {
+      return { lat: school.lat, lng: school.lng };
+    }
+    const text = (school.name + " " + school.address).toLowerCase();
+    if (text.includes("delhi")) return { lat: 28.6139, lng: 77.2090 };
+    if (text.includes("mumbai")) return { lat: 18.9388, lng: 72.8353 };
+    if (text.includes("bhopal")) return { lat: 23.2599, lng: 77.4126 };
+    if (text.includes("indore")) return { lat: 22.7196, lng: 75.8577 };
+    if (text.includes("gwalior")) return { lat: 26.2183, lng: 78.1828 };
+    if (text.includes("jabalpur")) return { lat: 23.1815, lng: 79.9864 };
+    if (text.includes("ujjain")) return { lat: 23.1765, lng: 75.7885 };
+    const hash = school.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return {
+      lat: 23.2599 + ((hash % 10) - 5) * 0.15,
+      lng: 77.4126 + (((hash * 3) % 10) - 5) * 0.15,
+    };
+  };
+
+  const [showWelcomePortal, setShowWelcomePortal] = useState<boolean>(false);
 
   const handleInbuiltLogin = (
     roleValue:
@@ -1835,6 +2060,7 @@ export default function App() {
     setIsAuthenticating(true);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       const email = (user.email || "").toLowerCase().trim();
@@ -1879,7 +2105,9 @@ export default function App() {
 
       // 3. Search Students
       const foundStudent = students.find(
-        (s) => (s.email || "").toLowerCase().trim() === email
+        (s) =>
+          (s.email || "").toLowerCase().trim() === email ||
+          (s.googleEmail || "").toLowerCase().trim() === email
       );
       if (foundStudent) {
         if (foundStudent.status === "Inactive" || foundStudent.isLocked) {
@@ -1953,21 +2181,42 @@ export default function App() {
         return;
       }
 
+      // 7. Search Verifiers
+      const foundVerifier = verifiers.find(
+        (v) => (v.email || "").toLowerCase().trim() === email
+      );
+      if (foundVerifier) {
+        if (foundVerifier.status === "Inactive") {
+          throw new Error("This Verifier account has been deactivated.");
+        }
+        trigger15SecLoading(() => {
+          setLoggedInUserId(foundVerifier.id);
+          setLoggedInUserName(foundVerifier.name);
+          setRole("verifier");
+          setIsLoggedIn(true);
+          setLoginIdentifier("");
+          setLoginPassword("");
+        });
+        return;
+      }
+
       // Fallback: Auto-Register New Google Sign-In user as active Student!
       const newStudentId = `stud_google_${Date.now()}`;
       const newStudent: Student = {
         id: newStudentId,
         name: user.displayName || user.email?.split("@")[0] || "Google Student",
         email: email,
+        googleEmail: email,
+        isGoogleRegistered: true,
         mobileNumber: user.phoneNumber || "+91 9999999999",
         dob: "2008-01-01",
         fatherName: "Google Auth Parent",
         motherName: "Google Auth Parent",
-        batchId: publicBatches[0]?.id || "batch_1",
+        batchId: (batches && batches[0]?.id) || (publicBatches && publicBatches[0]?.id) || "batch_1",
         rollNo: `G-${Math.floor(1000 + Math.random() * 9000)}`,
         scholarNumber: `ENR-G-${Math.floor(10000 + Math.random() * 90000)}`,
         status: "Active",
-        avatar: user.photoURL || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80",
+        avatar: user.photoURL || getRandomAvatarUrl(user.displayName || "Google User"),
         registeredAt: new Date().toISOString(),
       };
 
@@ -1984,67 +2233,15 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Google Sign-In Error:", err);
-      setLoginError(err.message || "Google Sign-In failed or was cancelled.");
+      if (err.code === "auth/popup-closed-by-user") {
+        setLoginError("Sign-in was cancelled (popup window closed).");
+      } else if (err.code === "auth/popup-blocked") {
+        setLoginError("Popup was blocked by your browser. Please allow popups to sign in with Google.");
+      } else {
+        setLoginError(err.message || "Google Sign-In failed or was cancelled.");
+      }
     } finally {
       setIsAuthenticating(false);
-    }
-  };
-
-  const handleSendChatMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = chatMessage.trim();
-    if (!text) return;
-
-    const userMsg = {
-      role: "user" as const,
-      content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-
-    setChatHistory((prev) => [...prev, userMsg]);
-    setChatMessage("");
-    setIsChatSending(true);
-
-    try {
-      const currentHistory = [...chatHistory, userMsg].map((h) => ({
-        role: h.role,
-        content: h.content,
-      }));
-
-      const res = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: currentHistory,
-          model: chatModel,
-          chatbotRole: chatbotRole,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Chat service returned status: " + res.status);
-      }
-
-      const data = await res.json();
-      const modelReply = {
-        role: "model" as const,
-        content: data.reply || "No reply returned from the tutor engine.",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-
-      setChatHistory((prev) => [...prev, modelReply]);
-    } catch (err: any) {
-      console.error("AI Chat error:", err);
-      const errReply = {
-        role: "model" as const,
-        content: `⚠️ Connection Issue: ${err.message || "The AI model is unresponsive"}. Please check server logs.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setChatHistory((prev) => [...prev, errReply]);
-    } finally {
-      setIsChatSending(false);
     }
   };
 
@@ -2122,13 +2319,19 @@ export default function App() {
         return;
       }
 
-      // 4. Search Students
+      // 4. Search Students (by username, rollNo, ID, email, or mobile number)
       const foundStudent = students.find(
-        (s) => (s.username || "").trim().toLowerCase() === usernameNorm && (s.password || "alex123") === pass
+        (s) => (
+          (s.username || "").trim().toLowerCase() === usernameNorm ||
+          (s.rollNo || "").trim().toLowerCase() === usernameNorm ||
+          (s.id || "").trim().toLowerCase() === usernameNorm ||
+          (s.email || "").trim().toLowerCase() === usernameNorm ||
+          (s.mobileNumber || "").trim() === (loginIdentifier || "").trim()
+        ) && (s.password || "alex123") === pass
       );
       if (foundStudent) {
-        if (foundStudent.status === "Inactive") {
-          setLoginError("This student account has been marked Inactive.");
+        if (foundStudent.status === "Inactive" || foundStudent.isLocked) {
+          setLoginError("This student account has been marked Inactive or Blocked by administration. Please contact center office.");
           return;
         }
         trigger15SecLoading(() => {
@@ -2914,24 +3117,11 @@ export default function App() {
       setLoggedInUserName("");
       setRole("admin"); // default fallback role
       setStudentDashboardInitialTab(undefined);
-      setLoginPortalView("website");
+      setLoginPortalView("choose");
       localStorage.removeItem("co_is_logged_in");
       localStorage.removeItem("co_user_role");
       localStorage.removeItem("co_user_id");
       localStorage.removeItem("co_user_name");
-
-      // Redirect back to previous website/referrer if it is a genuine external site, and not development sandboxes
-      const referrer = document.referrer;
-      if (
-        referrer &&
-        !referrer.includes(window.location.hostname) &&
-        !referrer.includes("ai.studio") &&
-        !referrer.includes("google") &&
-        !referrer.includes("run.app") &&
-        !referrer.includes("localhost")
-      ) {
-        window.location.href = referrer;
-      }
     });
   };
 
@@ -2961,11 +3151,14 @@ export default function App() {
   };
 
   const handleCreateBatch = (newBatch: Batch) => {
+    clearDeletedId("batches", newBatch.id);
     setBatches((prev) => [newBatch, ...prev]);
   };
 
   const handleDeleteBatch = (id: string) => {
+    markIdAsDeleted("batches", id);
     setBatches((prev) => prev.filter((b) => b.id !== id));
+    deleteDoc(doc(db, "batches", id)).catch(() => {});
   };
 
   const handleUpdateBatch = (updatedBatch: Batch) => {
@@ -3001,6 +3194,7 @@ export default function App() {
   };
 
   const handleCreateTeacher = (newTeacher: Teacher) => {
+    clearDeletedId("teachers", newTeacher.id);
     const updated = {
       ...newTeacher,
       employeeCode: newTeacher.employeeCode || generateRandomEmployeeCode(),
@@ -3009,7 +3203,9 @@ export default function App() {
   };
 
   const handleDeleteTeacher = (id: string) => {
+    markIdAsDeleted("teachers", id);
     setTeachers((prev) => prev.filter((t) => t.id !== id));
+    deleteDoc(doc(db, "teachers", id)).catch(() => {});
     // reset assigned batches
     setBatches((prev) =>
       prev.map((b) => (b.teacherId === id ? { ...b, teacherId: "" } : b)),
@@ -3017,6 +3213,7 @@ export default function App() {
   };
 
   const handleCreateFeeManager = (fm: FeeManager) => {
+    clearDeletedId("feeManagers", fm.id);
     const updated = {
       ...fm,
       employeeCode: fm.employeeCode || generateRandomEmployeeCode(),
@@ -3031,7 +3228,9 @@ export default function App() {
   };
 
   const handleDeleteFeeManager = (id: string) => {
+    markIdAsDeleted("feeManagers", id);
     setFeeManagers((prev) => prev.filter((fm) => fm.id !== id));
+    deleteDoc(doc(db, "feeManagers", id)).catch(() => {});
   };
 
   const handleUpdateFeeManagerStatus = (
@@ -3050,6 +3249,7 @@ export default function App() {
   };
 
   const handleCreateAdmissionOfficer = (ao: AdmissionOfficer) => {
+    clearDeletedId("admissionOfficers", ao.id);
     const updated = {
       ...ao,
       employeeCode: ao.employeeCode || generateRandomEmployeeCode(),
@@ -3064,7 +3264,9 @@ export default function App() {
   };
 
   const handleDeleteAdmissionOfficer = (id: string) => {
+    markIdAsDeleted("admissionOfficers", id);
     setAdmissionOfficers((prev) => prev.filter((ao) => ao.id !== id));
+    deleteDoc(doc(db, "admissionOfficers", id)).catch(() => {});
   };
 
   const handleUpdateAdmissionOfficerStatus = (
@@ -3086,6 +3288,7 @@ export default function App() {
   };
 
   const handleCreateVerifier = (v: Verifier) => {
+    clearDeletedId("verifiers", v.id);
     setVerifiers((prev) => {
       if (prev.some((x) => x.username.toLowerCase() === v.username.toLowerCase())) {
         alert("A Verifier with this username already exists.");
@@ -3096,7 +3299,9 @@ export default function App() {
   };
 
   const handleDeleteVerifier = (id: string) => {
+    markIdAsDeleted("verifiers", id);
     setVerifiers((prev) => prev.filter((v) => v.id !== id));
+    deleteDoc(doc(db, "verifiers", id)).catch(() => {});
   };
 
   const handleUpdateVerifierStatus = (id: string, nextStatus: "Active" | "Inactive") => {
@@ -3112,6 +3317,7 @@ export default function App() {
   };
 
   const handleCreateStudent = (newStudent: Student) => {
+    clearDeletedId("students", newStudent.id);
     setStudents((prev) => [newStudent, ...prev]);
     if (newStudent.batchId) {
       setBatches((prev) =>
@@ -3129,7 +3335,9 @@ export default function App() {
   };
 
   const handleDeleteStudent = (id: string) => {
+    markIdAsDeleted("students", id);
     setStudents((prev) => prev.filter((s) => s.id !== id));
+    deleteDoc(doc(db, "students", id)).catch(() => {});
     // remove from enrolled student lists in batches
     setBatches((prev) =>
       prev.map((b) => ({
@@ -3139,7 +3347,37 @@ export default function App() {
     );
   };
 
+  const handleUnenrollStudent = (id: string) => {
+    // remove from enrolled student lists in all batches
+    setBatches((prev) =>
+      prev.map((b) => ({
+        ...b,
+        studentIds: (b.studentIds || []).filter((sid) => sid !== id),
+      })),
+    );
+    // clear student batch assignment and mark enrollmentStatus as Un-Enrolled
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? { ...s, batchId: "", batchName: "", enrollmentStatus: "Un-Enrolled" as const }
+          : s,
+      ),
+    );
+    updateDoc(doc(db, "students", id), {
+      batchId: "",
+      batchName: "",
+      enrollmentStatus: "Un-Enrolled",
+    }).catch(() => {});
+  };
+
+  const handleDeleteMarksheet = (id: string) => {
+    markIdAsDeleted("examResults", id);
+    setExamMarksheets((prev) => prev.filter((m) => m.id !== id));
+    deleteDoc(doc(db, "examResults", id)).catch(() => {});
+  };
+
   const handleCreateAdmin = (newAdmin: AdminUser) => {
+    clearDeletedId("admins", newAdmin.id);
     const updated = {
       ...newAdmin,
       employeeCode: newAdmin.employeeCode || generateRandomEmployeeCode(),
@@ -3157,7 +3395,9 @@ export default function App() {
       );
       return;
     }
+    markIdAsDeleted("admins", id);
     setAdmins((prev) => prev.filter((a) => a.id !== id));
+    deleteDoc(doc(db, "admins", id)).catch(() => {});
   };
 
   const handleUpdateAdminStatus = (
@@ -3357,7 +3597,9 @@ export default function App() {
   };
 
   const handleDeleteFeeInvoice = (id: string) => {
+    markIdAsDeleted("feeInvoices", id);
     setFees((prev) => prev.filter((f) => f.id !== id));
+    deleteDoc(doc(db, "feeInvoices", id)).catch(() => {});
   };
 
   const handleSendSupportMessage = (content: string, studentId: string) => {
@@ -3374,6 +3616,7 @@ export default function App() {
   };
 
   const handleAddLesson = (newLesson: Lesson) => {
+    clearDeletedId("lessons", newLesson.id);
     setLessons((prev) => [newLesson, ...prev]);
   };
 
@@ -3387,7 +3630,9 @@ export default function App() {
   };
 
   const handleDeleteLesson = (id: string) => {
+    markIdAsDeleted("lessons", id);
     setLessons((prev) => prev.filter((l) => l.id !== id));
+    deleteDoc(doc(db, "lessons", id)).catch(() => {});
   };
 
   const handleMarkAttendance = (
@@ -3437,6 +3682,7 @@ export default function App() {
   };
 
   const handleAddTest = (newTest: Test) => {
+    clearDeletedId("tests", newTest.id);
     setTests((prev) => [newTest, ...prev]);
   };
 
@@ -3455,7 +3701,9 @@ export default function App() {
   };
 
   const handleDeleteTest = (id: string) => {
+    markIdAsDeleted("tests", id);
     setTests((prev) => prev.filter((t) => t.id !== id));
+    deleteDoc(doc(db, "tests", id)).catch(() => {});
   };
 
   const handleUpdateStudentLock = (id: string, isLocked: boolean) => {
@@ -3578,10 +3826,12 @@ export default function App() {
   };
 
   const handleRegisterComputerDesk = (newDesk: ComputerDesk) => {
+    clearDeletedId("computerDesks", newDesk.id);
     setComputerDesks((prev) => [newDesk, ...prev]);
   };
 
   const handleDeleteComputerDesk = (id: string) => {
+    markIdAsDeleted("computerDesks", id);
     const target = computerDesks.find((d) => d.id === id);
     if (target && target.currentStudentId) {
       const sId = target.currentStudentId;
@@ -3598,6 +3848,7 @@ export default function App() {
       );
     }
     setComputerDesks((prev) => prev.filter((d) => d.id !== id));
+    deleteDoc(doc(db, "computerDesks", id)).catch(() => {});
   };
 
   const handleUpdateComputerDesk = (updated: ComputerDesk) => {
@@ -3664,7 +3915,9 @@ export default function App() {
   };
 
   const handleAddAnnouncement = (newAnn: Announcement) => {
+    clearDeletedId("announcements", newAnn.id);
     setAnnouncements((prev) => [newAnn, ...prev]);
+    playAnnouncementSound();
   };
 
   const handleUpdateAnnouncement = (
@@ -3677,11 +3930,15 @@ export default function App() {
   };
 
   const handleDeleteAnnouncement = (id: string) => {
+    markIdAsDeleted("announcements", id);
     setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    deleteDoc(doc(db, "announcements", id)).catch(() => {});
   };
 
   const handleAddOnlineAnnouncement = (newAnn: OnlineAnnouncement) => {
+    clearDeletedId("onlineAnnouncements", newAnn.id);
     setOnlineAnnouncements((prev) => [newAnn, ...prev]);
+    playAnnouncementSound();
   };
 
   const handleUpdateOnlineAnnouncement = (
@@ -3694,10 +3951,13 @@ export default function App() {
   };
 
   const handleDeleteOnlineAnnouncement = (id: string) => {
+    markIdAsDeleted("onlineAnnouncements", id);
     setOnlineAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    deleteDoc(doc(db, "onlineAnnouncements", id)).catch(() => {});
   };
 
   const handleAddLead = (newLead: ContactLead) => {
+    clearDeletedId("contactLeads", newLead.id);
     setLeads((prev) => [newLead, ...prev]);
   };
 
@@ -3711,7 +3971,9 @@ export default function App() {
   };
 
   const handleDeleteLead = (id: string) => {
+    markIdAsDeleted("contactLeads", id);
     setLeads((prev) => prev.filter((l) => l.id !== id));
+    deleteDoc(doc(db, "contactLeads", id)).catch(() => {});
   };
 
   const handleUpdateAttendance = (
@@ -3852,10 +4114,8 @@ export default function App() {
     );
   }
 
-  // --- DEVICE LOCKOUT PORTAL SCREEN ---
-  const isDeviceAuthorized = authorizedDevices.some(
-    (d) => d.deviceKey === currentDeviceKey,
-  );
+  // --- DEVICE LOCKOUT PORTAL SCREEN (DISABLED / REMOVED REQUIREMENT) ---
+  const isDeviceAuthorized = true; // Device access code requirement removed as requested
 
   if (!isDeviceAuthorized) {
     return (
@@ -4176,30 +4436,7 @@ export default function App() {
 
   if (!isLoggedIn) {
     if (loginPortalView === "website") {
-      return (
-        <PublicWebsite
-          announcements={announcements}
-          onlineAnnouncements={onlineAnnouncements}
-          onAddLead={handleAddLead}
-          onEnterPortal={() => setLoginPortalView("choose")}
-          publicBatches={publicBatches}
-          batches={batches}
-          students={students}
-          teachers={teachers}
-          computerDesks={computerDesks}
-          tests={tests}
-          schools={schools}
-          onInbuiltLogin={handleInbuiltLogin}
-          onRegisterStudent={handleRegisterStudent}
-          onOnlineFeePortalLogin={handleOnlineFeePortalLogin}
-          themeColor={themeColor}
-          onThemeColorChange={setThemeColor}
-          counsellingRequests={counsellingRequests}
-          setCounsellingRequests={setCounsellingRequests}
-          counsellingSlots={counsellingSlots}
-          setCounsellingSlots={setCounsellingSlots}
-        />
-      );
+      setLoginPortalView("choose");
     }
 
     return (
@@ -4222,56 +4459,6 @@ export default function App() {
           }
         `}</style>
         
-        {/* --- WELCOME TO MP DIGITAL SCHOOL OVERLAY DIALOG --- */}
-        <AnimatePresence>
-          {showWelcomePortal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-slate-900/85 backdrop-blur-md z-50 flex items-center justify-center p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, y: 20 }}
-                animate={{ scale: 1, y: 0 }}
-                exit={{ scale: 0.95, y: 20 }}
-                transition={{ type: "spring", duration: 0.5 }}
-                className="bg-white rounded-3xl border border-slate-200 p-8 max-w-md w-full shadow-2xl relative overflow-hidden text-center"
-              >
-                <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600" />
-                
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner">
-                    <GraduationCap className="w-9 h-9" />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
-                      Welcome Message
-                    </span>
-                    <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-tight uppercase font-sans">
-                      Welcome To MP DIGITAL SCHOOL
-                    </h2>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed px-2">
-                      Access the digital directory, view certified scholar report cards, and sign in to active workspaces.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowWelcomePortal(false);
-                    }}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-black text-xs py-4 px-6 rounded-xl uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20 cursor-pointer flex items-center justify-center space-x-2 mt-4"
-                  >
-                    <span>Enter Portal</span>
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* --- LEFT SIDEBAR (GUEST MODE) --- */}
         <div className="w-full md:w-80 bg-slate-900 text-white flex flex-col border-r border-slate-800 shrink-0 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-950/40 via-transparent to-transparent pointer-events-none" />
@@ -4286,32 +4473,12 @@ export default function App() {
                 <h1 className="text-sm font-black uppercase tracking-wider leading-none text-white">
                   Study Hub
                 </h1>
-                {isFirebaseReady && (
-                  <div className="flex items-center space-x-1 border border-indigo-500/20 bg-indigo-500/10 rounded px-1.5 py-0.5 mt-1.5 max-w-fit">
-                    <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[7px] font-mono font-bold tracking-wider uppercase text-slate-400 leading-none">
-                      Live
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
 
           {/* Sidebar Menu items */}
           <div className="flex-1 p-4 space-y-1 relative z-10 overflow-y-auto">
-            {/* Direct Back to Public Website */}
-            <button
-              id="guest-tab-back-website"
-              onClick={() => {
-                setLoginPortalView("website");
-              }}
-              className="w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-[11px] font-black text-slate-300 hover:text-white hover:bg-slate-800/80 border border-slate-800 bg-slate-950/40 transition-all text-left uppercase tracking-wider cursor-pointer mb-3 shadow-md"
-            >
-              <Home className="w-4 h-4 shrink-0 text-indigo-400" />
-              <span>Go to Website</span>
-            </button>
-
             <div className="px-3 mb-2.5">
               <span className="text-[8.5px] font-black tracking-widest text-slate-555 uppercase">
                 Quick Access
@@ -4350,25 +4517,25 @@ export default function App() {
               }`}
             >
               <Award id="icon-marksheet" className="w-4 h-4 shrink-0" />
-              <span>Marksheet View</span>
+              <span>Check Result</span>
             </button>
 
-            {/* Tab 3: School Explorer Details */}
+            {/* Tab 3: Search Center in your location */}
             <button
-              id="guest-tab-schools"
+              id="guest-tab-nearby"
               onClick={() => {
-                setGuestActiveTab("schools");
-                setSelectedGuestSchool(null);
+                setGuestActiveTab("nearby");
               }}
               className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-[11px] font-black transition-all text-left uppercase tracking-wider cursor-pointer ${
-                guestActiveTab === "schools"
+                guestActiveTab === "nearby"
                   ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/15"
                   : "text-slate-400 hover:text-white hover:bg-slate-800"
               }`}
             >
-              <Search id="icon-search" className="w-4 h-4 shrink-0" />
-              <span>School Explorer</span>
+              <MapPin id="icon-nearby" className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>Nearby Centers</span>
             </button>
+
 
             {/* Tab 4: Online Announcements */}
             <button
@@ -4412,7 +4579,7 @@ export default function App() {
                   <div className="text-center mb-6">
                     <div className="flex items-center justify-center space-x-2">
                       <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">
-                        School Login
+                        Login
                       </h2>
                     </div>
                     <p className="text-xs text-slate-400 mt-1.5 font-medium">
@@ -4503,6 +4670,46 @@ export default function App() {
                       )}
                     </button>
                   </form>
+
+                  {/* Or divider */}
+                  <div className="relative my-4 flex items-center">
+                    <div className="flex-grow border-t border-slate-200"></div>
+                    <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-mono font-bold uppercase tracking-wider">
+                      Or continue with
+                    </span>
+                    <div className="flex-grow border-t border-slate-200"></div>
+                  </div>
+
+                  {/* Google Login CTA */}
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    disabled={isAuthenticating}
+                    className="w-full bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 font-bold text-xs py-3 px-4 rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2.5 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                    <span>Sign in with Google</span>
+                  </button>
+                  <p className="text-[10px] text-center text-slate-400 mt-2 font-medium">
+                    Fast 1-click access for students, teachers and staff
+                  </p>
                 </div>
               </div>
             )}
@@ -4529,7 +4736,7 @@ export default function App() {
                       </span>
                       <input
                         type="text"
-                        placeholder="Type scholar roll number (e.g. CO-2026-001)"
+                        placeholder="Type scholar roll number"
                         value={guestMarksheetRollNo}
                         onChange={(e) => {
                           setGuestMarksheetRollNo(e.target.value);
@@ -4698,178 +4905,196 @@ export default function App() {
               </div>
             )}
 
-            {/* -------------------- 3. SCHOOL PROPERTIES EXPLORER TAB -------------------- */}
-            {guestActiveTab === "schools" && (
+            {/* -------------------- 3. SEARCH CENTER IN YOUR LOCATION TAB -------------------- */}
+            {guestActiveTab === "nearby" && (
               <div className="space-y-6 pt-2">
-                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                {/* Header card */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
-                    <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
-                      Affiliated Educational Schools Search
-                    </h2>
-                    <p className="text-xs text-slate-405 mt-0.5 font-semibold">
-                      Lookup verified institutional campuses operating inside our network.
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+                        <MapPin className="w-5 h-5" />
+                      </span>
+                      <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                        Search Center in Your Location
+                      </h2>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium max-w-xl">
+                      Find the nearest Study HUB campuses, exam centers, and affiliated academies relative to your live GPS coordinates.
                     </p>
                   </div>
 
-                  <div className="relative w-full sm:w-72">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                      <Search className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Filter schools by name or code..."
-                      value={guestSchoolSearch}
-                      onChange={(e) => setGuestSchoolSearch(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 text-slate-955 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-650 focus:bg-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(() => {
-                    const filtered = schools.filter(s =>
-                      s.isAllotted === true &&
-                      (s.name.toLowerCase().includes(guestSchoolSearch.toLowerCase()) ||
-                       s.code.toLowerCase().includes(guestSchoolSearch.toLowerCase()))
-                    );
-
-                    if (filtered.length === 0) {
-                      return (
-                        <div className="col-span-2 bg-white text-center text-slate-400 py-12 rounded-3xl border text-sm font-semibold italic">
-                          No institutional campuses found matching your filter criteria.
-                        </div>
-                      );
-                    }
-
-                    return filtered.map(s => (
-                      <div
-                        key={s.id}
-                        onClick={() => setSelectedGuestSchool(s)}
-                        className={`bg-white rounded-2xl border p-5 shadow-sm hover:shadow-md transition-all cursor-pointer transform hover:-translate-y-0.5 relative overflow-hidden ${
-                          selectedGuestSchool?.id === s.id ? "border-indigo-500 ring-2 ring-indigo-500/10" : "border-slate-200"
-                        }`}
-                      >
-                        <div className="absolute top-0 right-0 p-3 text-[8.5px] font-mono text-indigo-600 font-extrabold uppercase tracking-widest bg-indigo-50 rounded-bl-xl border-l border-b border-indigo-100">
-                          {s.code}
-                        </div>
-
-                        <h3 className="font-extrabold text-slate-900 uppercase tracking-tight text-sm pr-16 font-sans">
-                          {s.name}
-                        </h3>
-
-                        <div className="space-y-1.5 mt-4 text-xs text-slate-600">
-                          <p className="flex items-center space-x-1.5 font-sans">
-                            <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-24">Principal Name:</span>
-                            <strong className="text-slate-800">{s.principalName}</strong>
-                          </p>
-                          <p className="flex items-center space-x-1.5 font-sans">
-                            <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-24">Address:</span>
-                            <span className="truncate max-w-[200px] inline-block font-medium">{s.address}</span>
-                          </p>
-                          <p className="flex items-center space-x-1.5 font-sans">
-                            <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-24">Status Badge:</span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${s.status === "Active" ? "bg-emerald-50 text-emerald-800 border animate-pulse" : "bg-slate-101 text-slate-500"}`}>
-                              {s.status}
-                            </span>
-                          </p>
-                        </div>
+                  {locationStatus === "granted" && userCoords && (
+                    <div className="flex items-center space-x-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2 rounded-2xl text-xs font-mono font-bold">
+                      <LocateFixed className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
+                      <div>
+                        <span className="block text-[8px] uppercase tracking-widest text-emerald-600 font-black">Detected GPS Location</span>
+                        <span>{userCoords.lat.toFixed(4)}° N, {userCoords.lng.toFixed(4)}° E</span>
                       </div>
-                    ));
-                  })()}
+                      <button
+                        type="button"
+                        onClick={handleGetLocation}
+                        className="ml-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-xl transition-colors cursor-pointer font-sans uppercase font-black text-[9px]"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Selected School Details popup modal (ideal for mobile and desktop screens) */}
-                <AnimatePresence>
-                  {selectedGuestSchool && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                      onClick={() => setSelectedGuestSchool(null)}
+                {/* Location Request / Prompt Card when location is not granted yet */}
+                {locationStatus !== "granted" && (
+                  <div className="bg-white rounded-3xl border border-indigo-100 p-8 shadow-sm text-center relative overflow-hidden">
+                    <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-emerald-500 via-indigo-500 to-purple-500" />
+                    
+                    <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl border border-emerald-100 flex items-center justify-center mx-auto mb-4 shadow-sm">
+                      <Navigation className={`w-8 h-8 ${locationStatus === "locating" ? "animate-spin" : ""}`} />
+                    </div>
+
+                    <h3 className="text-base font-black text-slate-900 uppercase tracking-tight mb-2">
+                      Location Access Required
+                    </h3>
+                    
+                    <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed mb-6 font-medium">
+                      Location permission is required by your browser to detect your current position and compute precise road distances to nearest Study HUB centers.
+                    </p>
+
+                    {locationErrorMsg && (
+                      <div className="max-w-md mx-auto mb-6 p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-semibold text-center">
+                        ⚠️ {locationErrorMsg}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleGetLocation}
+                      disabled={locationStatus === "locating"}
+                      className="inline-flex items-center space-x-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-xs px-6 py-3.5 rounded-2xl shadow-lg shadow-emerald-600/20 transition-all cursor-pointer uppercase tracking-wider disabled:opacity-50"
                     >
-                      <motion.div
-                        initial={{ scale: 0.95, y: 15 }}
-                        animate={{ scale: 1, y: 0 }}
-                        exit={{ scale: 0.95, y: 15 }}
-                        transition={{ type: "spring", duration: 0.4 }}
-                        className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {/* Colorful top band */}
-                        <div className="absolute top-0 left-0 w-full h-1.5 bg-indigo-600" />
-                        
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="flex items-center space-x-3">
-                            <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600">
-                              <SchoolIcon className="w-6 h-6" />
+                      <LocateFixed className="w-4 h-4" />
+                      <span>{locationStatus === "locating" ? "Acquiring GPS Location..." : "Grant Location Access & Search"}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Main Results View once location is detected */}
+                {locationStatus === "granted" && userCoords && (
+                  <div className="space-y-6">
+                    {/* Controls Bar: Search Filter & Radius Selector */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row gap-3 justify-between items-center">
+                      <div className="relative w-full sm:w-72">
+                        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                          <Search className="w-4 h-4" />
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Search center name, city or code..."
+                          value={nearbySearchQuery}
+                          onChange={(e) => setNearbySearchQuery(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl pl-10 pr-4 py-2 text-xs font-semibold focus:outline-none focus:border-indigo-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Radius:</span>
+                        <select
+                          value={maxRadiusKm}
+                          onChange={(e) => setMaxRadiusKm(Number(e.target.value))}
+                          className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500"
+                        >
+                          <option value={50}>Within 50 km</option>
+                          <option value={100}>Within 100 km</option>
+                          <option value={250}>Within 250 km</option>
+                          <option value={500}>Within 500 km</option>
+                          <option value={10000}>All Distance Centers</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Nearby Centers List */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(() => {
+                        const centersWithDistance = (schools || [])
+                          .map((s) => {
+                            const coords = getSchoolCoordinates(s);
+                            const dist = calculateDistanceKm(userCoords.lat, userCoords.lng, coords.lat, coords.lng);
+                            return { school: s, distance: dist, coords };
+                          })
+                          .filter((item) => {
+                            const matchesQuery =
+                              item.school.name.toLowerCase().includes(nearbySearchQuery.toLowerCase()) ||
+                              item.school.code.toLowerCase().includes(nearbySearchQuery.toLowerCase()) ||
+                              item.school.address.toLowerCase().includes(nearbySearchQuery.toLowerCase());
+                            const matchesRadius = item.distance <= maxRadiusKm;
+                            return matchesQuery && matchesRadius;
+                          })
+                          .sort((a, b) => a.distance - b.distance);
+
+                        if (centersWithDistance.length === 0) {
+                          return (
+                            <div className="col-span-2 bg-white text-center py-12 px-4 rounded-3xl border border-slate-200 text-slate-400 text-xs font-semibold italic">
+                              No Study HUB centers found within {maxRadiusKm < 1000 ? `${maxRadiusKm} km` : "selected radius"}. Try expanding your search radius or changing search keywords.
                             </div>
+                          );
+                        }
+
+                        return centersWithDistance.map(({ school: s, distance }) => (
+                          <div
+                            key={s.id}
+                            className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden flex flex-col justify-between group"
+                          >
+                            <div className="absolute top-0 right-0 p-3 text-[9px] font-mono text-emerald-700 font-extrabold uppercase tracking-widest bg-emerald-50 rounded-bl-xl border-l border-b border-emerald-100 flex items-center space-x-1">
+                              <MapPin className="w-3 h-3 text-emerald-600" />
+                              <span>{distance} km away</span>
+                            </div>
+
                             <div>
-                              <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                                Institutional Dossier
+                              <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                                CENTER CODE: {s.code}
                               </span>
-                              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mt-1">
-                                {selectedGuestSchool.name}
+
+                              <h3 className="font-extrabold text-slate-900 uppercase tracking-tight text-sm pr-24 font-sans leading-snug">
+                                {s.name}
                               </h3>
-                            </div>
-                          </div>
-                          
-                          <button
-                            type="button"
-                            onClick={() => setSelectedGuestSchool(null)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-                            aria-label="Close detail modal"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-5 text-xs text-slate-750 pb-2">
-                          <div className="col-span-2 sm:col-span-1 bg-slate-50 border border-slate-100 p-3 rounded-xl">
-                            <span className="text-slate-450 font-black uppercase text-[8.5px] tracking-wider block mb-0.5">Campus Code</span>
-                            <strong className="font-mono text-indigo-700 text-sm font-extrabold">{selectedGuestSchool.code}</strong>
-                          </div>
-                          <div className="col-span-2 sm:col-span-1 bg-slate-50 border border-slate-100 p-3 rounded-xl">
-                            <span className="text-slate-455 font-black uppercase text-[8.5px] tracking-wider block mb-0.5">Registry Status</span>
-                            <div>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-50 text-emerald-800 border inline-block mt-0.5">
-                                {selectedGuestSchool.status} Mode
+                              <div className="space-y-1.5 mt-4 text-xs text-slate-600">
+                                <p className="flex items-start space-x-1.5">
+                                  <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-20 shrink-0 mt-0.5">Address:</span>
+                                  <span className="font-medium text-slate-700 leading-relaxed">{s.address}</span>
+                                </p>
+                                <p className="flex items-center space-x-1.5">
+                                  <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-20 shrink-0">Principal:</span>
+                                  <strong className="text-slate-800">{s.principalName}</strong>
+                                </p>
+                                <p className="flex items-center space-x-1.5">
+                                  <span className="text-slate-400 font-extrabold uppercase text-[8.5px] block w-20 shrink-0">Status:</span>
+                                  <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase ${s.status === "Active" ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-100 text-slate-500"}`}>
+                                    {s.status} Campus
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
+                              <span className="text-[9.5px] text-slate-400 font-mono font-semibold">
+                                Registered: {s.registeredAt ? s.registeredAt.substring(0, 10) : "Verified"}
                               </span>
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name + " " + s.address)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center space-x-1.5 text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                              >
+                                <span>Get Directions</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
                             </div>
                           </div>
-                          <div className="col-span-2 bg-slate-50 border border-slate-100 p-3.5 rounded-xl">
-                            <span className="text-slate-450 font-black uppercase text-[8.5px] tracking-wider block mb-1">Director Principal</span>
-                            <span className="text-slate-900 font-extrabold flex items-center space-x-1.5 text-xs">
-                              <span>{selectedGuestSchool.principalName}</span>
-                            </span>
-                          </div>
-                          <div className="col-span-2 bg-slate-50 border border-slate-100 p-3.5 rounded-xl">
-                            <span className="text-slate-455 font-black uppercase text-[8.5px] tracking-wider block mb-1">Principal Contact</span>
-                            <span className="text-slate-800 font-bold font-mono">{selectedGuestSchool.principalEmail}</span>
-                          </div>
-                          <div className="col-span-2 bg-slate-50 border border-slate-100 p-3.5 rounded-xl">
-                            <span className="text-slate-450 font-black uppercase text-[8.5px] tracking-wider block mb-1">Verified Location Address</span>
-                            <span className="text-slate-800 font-medium leading-relaxed block">{selectedGuestSchool.address}</span>
-                          </div>
-                          <div className="col-span-2 bg-slate-50 border border-slate-100 px-3.5 py-2 rounded-xl flex justify-between items-center text-[10px] text-slate-400">
-                            <span className="font-bold uppercase tracking-wider text-[8.5px]">Affiliation Registered</span>
-                            <span className="font-mono font-medium">{selectedGuestSchool.registeredAt || "June 25, 2026"}</span>
-                          </div>
-                        </div>
-
-                        <div className="mt-6">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedGuestSchool(null)}
-                            className="w-full bg-slate-900 hover:bg-slate-850 active:scale-98 text-white font-black text-xs py-3 rounded-xl uppercase tracking-wider transition-all cursor-pointer text-center"
-                          >
-                            Close Dossier View
-                          </button>
-                        </div>
-                      </motion.div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -4886,12 +5111,12 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  {onlineAnnouncements.filter(ann => ann.isPublished !== false).length === 0 ? (
+                  {(onlineAnnouncements || []).filter(ann => ann.isPublished !== false).length === 0 ? (
                     <div className="bg-white text-center text-slate-450 py-12 rounded-3xl border text-sm italic">
                       There are no online portal announcements published today.
                     </div>
                   ) : (
-                    onlineAnnouncements.filter(ann => ann.isPublished !== false).map(ann => (
+                    (onlineAnnouncements || []).filter(ann => ann.isPublished !== false).map(ann => (
                       <div key={ann.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-all relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-600" />
                         
@@ -4991,8 +5216,38 @@ export default function App() {
               </div>
             </div>
 
+            {/* Quick 1-Click Google Sign In */}
+            <div className="max-w-md mx-auto">
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={isAuthenticating}
+                className="w-full py-3.5 px-4 bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500 text-white font-bold text-xs rounded-2xl shadow-xl transition-all flex items-center justify-center space-x-3 cursor-pointer active:scale-[0.99] disabled:opacity-50"
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>Instant Sign In with Google</span>
+              </button>
+            </div>
+
             {/* Split Page Portal Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 max-w-4xl mx-auto gap-6">
               {/* STUDENT CARD */}
               <div className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-indigo-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1">
                 <div className="space-y-4 text-left">
@@ -5008,9 +5263,8 @@ export default function App() {
                     </p>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Check personalized timetables, view dynamic test materials,
-                    download QR ID code cards, review graded results papers, and
-                    complete pending tuitions.
+                    Explore Study HUB courses, access live classes, read class notes,
+                    purchase books & stationary from inbuilt store, and ask doubts to mentors.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-700/50">
@@ -5032,16 +5286,15 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-lg font-extrabold text-white">
-                      Faculty workplace
+                      Teacher Portal
                     </h3>
                     <p className="text-[11px] text-slate-400 font-medium font-mono uppercase tracking-wider mt-0.5">
-                      Instructor Console
+                      Faculty Instructor
                     </p>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Plan batches schedules, host live marks evaluations, verify
-                    candidate entry registers via card scanner simulator, and
-                    issue urgent cohort announcements.
+                    Access course sections, conduct live classes, upload class notes,
+                    interact with student doubts, and publish course announcements.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-700/50">
@@ -5049,30 +5302,29 @@ export default function App() {
                     onClick={() => handleNavigatePortal("teacher", "teacher")}
                     className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1"
                   >
-                    <span>Enter Faculty Login</span>
+                    <span>Enter Teacher Login</span>
                     <span className="font-mono text-sm">→</span>
                   </button>
                 </div>
               </div>
 
-              {/* REGISTRAR CARD */}
-              <div className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-indigo-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1">
+              {/* ADMIN CARD */}
+              <div className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-violet-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1">
                 <div className="space-y-4 text-left">
                   <div className="w-11 h-11 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400">
                     <Lock className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-lg font-extrabold text-white">
-                      Registrar Head
+                      Admin Portal
                     </h3>
                     <p className="text-[11px] text-slate-400 font-medium font-mono uppercase tracking-wider mt-0.5">
-                      Administrative Center
+                      System Headquarters
                     </p>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Set up class syllabi, assign computer seating arrangements,
-                    audit ledger records, modify instructors profiles, and
-                    handle critical database resets.
+                    Create, edit, publish live and block courses, add new users (teachers/students)
+                    with custom usernames, and manage Study HUB Center store catalog.
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-700/50">
@@ -5080,110 +5332,7 @@ export default function App() {
                     onClick={() => handleNavigatePortal("admin", "admin")}
                     className="w-full py-3 px-4 bg-violet-600 hover:bg-violet-700 text-white text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1"
                   >
-                    <span>Enter Registrar Login</span>
-                    <span className="font-mono text-sm">→</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* FEE MANAGEMENT CARD */}
-              <div className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-emerald-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1">
-                <div className="space-y-4 text-left">
-                  <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 animate-pulse">
-                    <Receipt className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-extrabold text-white">
-                      Fee Control
-                    </h3>
-                    <p className="text-[11px] text-emerald-400 font-medium font-mono uppercase tracking-wider mt-0.5">
-                      Treasurer Desk
-                    </p>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Settle student invoices, track academic ledger transactions,
-                    verify real-time compliance codes, study analytics, and
-                    review active payments histories.
-                  </p>
-                </div>
-                <div className="mt-6 pt-4 border-t border-slate-700/50">
-                  <button
-                    onClick={() =>
-                      handleNavigatePortal("feemanager", "feemanager")
-                    }
-                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1"
-                  >
-                    <span>Enter Treasurer Login</span>
-                    <span className="font-mono text-sm">→</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* ADMISSIONS CARD */}
-              <div
-                id="portal-choose-card-admissions"
-                className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-amber-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1 text-slate-100"
-              >
-                <div className="space-y-4 text-left">
-                  <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                    <ClipboardList className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-extrabold text-white">
-                      Admission Desk
-                    </h3>
-                    <p className="text-[11px] text-slate-400 font-medium font-mono uppercase tracking-wider mt-0.5">
-                      Enrollment Center
-                    </p>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Evaluate inbound prospective student inquiries, log physical
-                    walk-in applications, and directly promote qualified leads
-                    into active study batches.
-                  </p>
-                </div>
-                <div className="mt-6 pt-4 border-t border-slate-700/50">
-                  <button
-                    onClick={() =>
-                      handleNavigatePortal("admission", "admission")
-                    }
-                    className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1 shadow-md shadow-amber-600/10"
-                  >
-                    <span>Enter Admissions Desk</span>
-                    <span className="font-mono text-sm">→</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* PRINCIPAL PORTAL CARD */}
-              <div
-                id="portal-choose-card-principal"
-                className="bg-slate-800/65 backdrop-blur-xl border border-slate-700/40 rounded-3xl p-6 shadow-xl flex flex-col justify-between hover:border-red-500/50 hover:bg-slate-800/80 transition-all duration-300 transform hover:-translate-y-1 text-slate-100"
-              >
-                <div className="space-y-4 text-left">
-                  <div className="w-11 h-11 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
-                    <SchoolIcon className="w-5 h-5 animate-pulse" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-extrabold text-white">
-                      Principal Portal
-                    </h3>
-                    <p className="text-[11px] text-red-400 font-medium font-mono uppercase tracking-wider mt-0.5">
-                      General Overseer
-                    </p>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Access school-wide administrative diagnostics, monitor affiliate student databases, modify instructor allotments, and broadcast broad-level announcements.
-                  </p>
-                </div>
-                <div className="mt-6 pt-4 border-t border-slate-700/50">
-                  <button
-                    onClick={() =>
-                      handleNavigatePortal("principal", "principal")
-                    }
-                    className="w-full py-3 px-4 bg-red-650 hover:bg-red-750 text-white text-xs font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1 shadow-md shadow-red-600/10"
-                  >
-                    <span>Enter Principal Portal</span>
+                    <span>Enter Admin Login</span>
                     <span className="font-mono text-sm">→</span>
                   </button>
                 </div>
@@ -5368,6 +5517,41 @@ export default function App() {
               </button>
             </form>
 
+            <div className="relative my-4 flex items-center">
+              <div className="flex-grow border-t border-slate-700/60"></div>
+              <span className="flex-shrink mx-3 text-[9px] text-slate-400 font-mono font-bold uppercase tracking-wider">
+                Or Continue With
+              </span>
+              <div className="flex-grow border-t border-slate-700/60"></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isAuthenticating}
+              className="w-full bg-slate-900/90 hover:bg-slate-900 border border-slate-700 hover:border-slate-500 text-white font-bold text-xs py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center space-x-2.5 cursor-pointer active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                />
+              </svg>
+              <span>Sign In with Google</span>
+            </button>
+
             <div className="mt-8 pt-4 border-t border-slate-700/20 text-center">
               <p className="text-[10px] text-slate-505 font-medium leading-relaxed uppercase tracking-wider">
                 Study Hub Session Engine Encrypted Setup
@@ -5378,6 +5562,267 @@ export default function App() {
       </div>
     );
   }
+
+  const renderRoleSidebarMenu = () => {
+    if (role === "admin") {
+      const adminTabs = [
+        { id: "courses", label: "Course Management", icon: BookOpen, color: "text-indigo-400", badge: "LIVE" },
+        { id: "exam-portal", label: "Exam Portal (Live)", icon: Award, color: "text-amber-400", badge: "EXAMS" },
+        { id: "store", label: "Store", icon: ShoppingBag, color: "text-rose-400", badge: "STORE" },
+        { id: "store-helpdesk", label: "Store Help Desk", icon: Headphones, color: "text-sky-400", badge: "SUPPORT" },
+        { id: "inventory", label: "Inventory Management", icon: Boxes, color: "text-amber-400", badge: "STOCK" },
+        { id: "orders", label: "Order & Home Delivery Control", icon: Truck, color: "text-emerald-400", badge: "DELIVERY" },
+        { id: "centers", label: "Physical Study Centers", icon: MapPin, color: "text-emerald-400", badge: "CENTERS" },
+        { id: "create-user", label: "Create User (Admin Only)", icon: UserPlus, color: "text-emerald-400", badge: "CREATE" },
+      ];
+
+      return (
+        <div className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Admin Control Center
+          </p>
+          {adminTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = adminActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setAdminActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all duration-150 cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+                {tab.badge && (
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (role === "teacher") {
+      const teacherTabs = [
+        { id: "courses", label: "Course Management", icon: BookOpen, color: "text-indigo-400", badge: "LIVE" },
+        { id: "exam-portal", label: "Exam Portal", icon: Award, color: "text-amber-400", badge: "EXAMS" },
+        { id: "store", label: "Store", icon: ShoppingBag, color: "text-rose-400" },
+        { id: "questionbank", label: "Question Bank & Tests", icon: ClipboardList, color: "text-rose-400" },
+      ];
+      return (
+        <div className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Teacher Console
+          </p>
+          {teacherTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = teacherActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setTeacherActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+                {tab.badge && (
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (role === "student") {
+      const studentTabs = [
+        { id: "courses", label: "My Course", icon: BookOpen, color: "text-indigo-400", badge: "LIVE" },
+        { id: "exam-portal", label: "Exam Portal", icon: Award, color: "text-amber-400", badge: "EXAMS" },
+        { id: "store", label: "Store", icon: ShoppingBag, color: "text-rose-400" },
+      ];
+      return (
+        <div className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Quick Button
+          </p>
+          {studentTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = studentActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setStudentActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+                {tab.badge && (
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (role === "admission") {
+      const admissionTabs = [
+        { id: "leads", label: "Leads & Inquiries", icon: Compass, color: "text-indigo-400" },
+        { id: "admissions", label: "Admission Requests", icon: UserCheck, color: "text-emerald-400" },
+        { id: "fees", label: "Collect Fees", icon: Receipt, color: "text-cyan-400" },
+        { id: "cards", label: "Student ID Cards", icon: CreditCard, color: "text-amber-400" },
+      ];
+      return (
+        <div className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Admissions Portal
+          </p>
+          {admissionTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = admissionActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setAdmissionActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (role === "feemanager") {
+      const feeTabs = [
+        { id: "ledger", label: "Fee Ledger", icon: Receipt, color: "text-cyan-400" },
+        { id: "collect", label: "Collect Fee Payment", icon: CreditCard, color: "text-emerald-400" },
+        { id: "defaulters", label: "Dues & Defaulters", icon: ShieldAlert, color: "text-rose-400" },
+        { id: "receipts", label: "Payment Receipts", icon: ClipboardList, color: "text-indigo-400" },
+      ];
+      return (
+        <div className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Finance Portal
+          </p>
+          {feeTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = feeActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setFeeActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    if (role === "principal") {
+      const principalTabs = [
+        { id: "overview", label: "Campus Dashboard", icon: Award, color: "text-amber-400" },
+        { id: "faculty", label: "Faculty Members", icon: Users, color: "text-cyan-400" },
+        { id: "students", label: "Student Analytics", icon: GraduationCap, color: "text-emerald-400" },
+        { id: "announcements", label: "Campus Broadcasts", icon: Megaphone, color: "text-orange-400" },
+      ];
+      return (
+        <div className="p-3 space-y-1.5 overflow-y-auto max-h-[calc(100vh-14rem)] no-scrollbar">
+          <p className="px-3 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+            Principal Portal
+          </p>
+          {principalTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = principalActiveTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setPrincipalActiveTab(tab.id as any);
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm sm:text-base font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <div className="flex items-center space-x-3 min-w-0">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : tab.color}`} />
+                  <span className="truncate">{tab.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div
@@ -5401,58 +5846,6 @@ export default function App() {
           --brand-950: ${selectedColors["950"]};
         }
 
-        /* Dark Mode Inject Styles */
-        html.dark, .dark {
-          background-color: #0d121f !important;
-          color: #f1f5f9 !important;
-        }
-        .dark #app-root-container {
-          background-color: #0d121f !important;
-          color: #f1f5f9 !important;
-        }
-        .dark header {
-          background-color: #111827 !important;
-          border-color: #1f2937 !important;
-        }
-        .dark .bg-white {
-          background-color: #161e2e !important;
-          border-color: #243049 !important;
-          color: #f8fafc !important;
-        }
-        .dark .bg-slate-50, .dark .bg-slate-100/50, .dark .bg-slate-50\\/50 {
-          background-color: #0f172a !important;
-          border-color: #1f2937 !important;
-          color: #f1f5f9 !important;
-        }
-        .dark .bg-slate-100 {
-          background-color: #111827 !important;
-          border-color: #1f2937 !important;
-        }
-        .dark .border-slate-100, .dark .border-slate-200, .dark .border-slate-200\\/60 {
-          border-color: #1e293b !important;
-        }
-        .dark .text-slate-800, .dark .text-slate-900, .dark .text-slate-700 {
-          color: #f1f5f9 !important;
-        }
-        .dark .text-slate-600, .dark .text-slate-550, .dark .text-slate-500 {
-          color: #94a3b8 !important;
-        }
-        .dark .text-slate-400, .dark .text-slate-455, .dark .text-slate-450 {
-          color: #64748b !important;
-        }
-        .dark select, .dark input, .dark textarea {
-          background-color: #0f172a !important;
-          border-color: #334155 !important;
-          color: #f8fafc !important;
-        }
-        .dark select option {
-          background-color: #0f172a !important;
-          color: #f8fafc !important;
-        }
-        .dark .shadow-sm, .dark .shadow-xs {
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2) !important;
-        }
-        
         /* Direct printed layout adjustments */
         @media print {
           header, nav, button, aside, .no-print {
@@ -5480,22 +5873,33 @@ export default function App() {
             <span className="font-display font-black text-white tracking-tight text-sm uppercase block leading-none">
               Study Hub
             </span>
-            {isFirebaseReady && (
-              <div className="flex items-center space-x-1.5 mt-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[8px] font-mono font-bold tracking-wider uppercase text-slate-400 leading-none">
-                  Database Live
-                </span>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Scrollable middle section inside the Sidebar Menu (empty) */}
-        <div className="flex-1" />
+        {/* Scrollable middle section inside the Sidebar Menu */}
+        <div className="flex-1 overflow-y-auto no-scrollbar">
+          {renderRoleSidebarMenu()}
+        </div>
 
         {/* Floating Profile Section inside sidebar footer */}
-        <div className="p-4 border-t border-slate-850 bg-slate-950/40 space-y-3 mt-auto">
+        <div className="p-4 border-t border-slate-850 bg-slate-950/40 space-y-2 mt-auto">
+          {/* Guided First-Time Tutorial Button */}
+          <button
+            onClick={() => setIsTutorialOpen(true)}
+            className="w-full flex items-center justify-between p-2.5 bg-indigo-950/50 hover:bg-indigo-900/60 text-indigo-200 rounded-xl transition-all cursor-pointer border border-indigo-500/30 group"
+            title="Start Guided Tutorial & Feature Overview"
+          >
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <Compass className="w-4 h-4 text-amber-400 shrink-0 group-hover:rotate-45 transition-transform" />
+              <span className="text-xs font-extrabold uppercase tracking-wider truncate">
+                Guided Tutorial
+              </span>
+            </div>
+            <span className="bg-amber-400/20 text-amber-300 font-mono font-black text-[9px] px-2 py-0.5 rounded uppercase shrink-0 border border-amber-400/30">
+              Tour 💡
+            </span>
+          </button>
+
           {(() => {
             const profile = getCurrentUserProfile();
             return (
@@ -5588,42 +5992,40 @@ export default function App() {
               <span className="font-display font-black text-slate-900 tracking-tight text-sm uppercase block leading-none">
                 Study Hub
               </span>
-              {isFirebaseReady && (
-                <div className="flex items-center space-x-1 border border-indigo-100 bg-indigo-50/20 rounded px-1 mt-0.5 max-w-fit">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[7.5px] font-mono font-bold tracking-wider uppercase text-slate-500 leading-none">
-                    Live
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            {/* Mobile notification bell icon */}
-            <button
-              onClick={() => setIsNotificationOpen(true)}
-              className="relative p-2 bg-slate-50 border border-slate-200 text-slate-800 hover:bg-slate-100 rounded-xl transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4 shrink-0" />
-              {notifications.filter((n) => !n.readBy.includes(loggedInUserId))
-                .length > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-indigo-600 text-[8px] font-black text-white ring-2 ring-white animate-pulse">
-                  {
-                    notifications.filter(
-                      (n) => !n.readBy.includes(loggedInUserId),
-                    ).length
-                  }
-                </span>
-              )}
-            </button>
+            {/* Notification bell icon (hidden for student) */}
+            {role !== "student" && (
+              <button
+                onClick={() => setIsNotificationOpen(true)}
+                className="relative p-2 bg-slate-50 border border-slate-200 text-slate-800 hover:bg-slate-100 rounded-xl transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
+                title="Notifications"
+              >
+                <Bell className="w-4 h-4 shrink-0" />
+                {notifications.filter((n) => !n.readBy.includes(loggedInUserId))
+                  .length > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-indigo-600 text-[8px] font-black text-white ring-2 ring-white animate-pulse">
+                    {
+                      notifications.filter(
+                        (n) => !n.readBy.includes(loggedInUserId),
+                      ).length
+                    }
+                  </span>
+                )}
+              </button>
+            )}
 
             {loggedInUserId === "admin" && (
               <select
                 value={role}
                 onChange={(e) => {
-                  setRole(e.target.value as any);
+                  const newRole = e.target.value as any;
+                  setRole(newRole);
+                  if (newRole === "admin") setAdminActiveTab("courses");
+                  if (newRole === "teacher") setTeacherActiveTab("courses");
+                  if (newRole === "student") setStudentActiveTab("courses");
                   setIsMobileMenuOpen(false);
                 }}
                 className="bg-slate-50 border border-slate-200 text-xs font-extrabold uppercase px-2 py-1.5 rounded-lg text-indigo-700 focus:outline-none"
@@ -5683,8 +6085,10 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Drawer Scrollable Middle Sections (empty) */}
-              <div className="flex-1" />
+              {/* Drawer Scrollable Middle Sections */}
+              <div className="flex-1 overflow-y-auto no-scrollbar">
+                {renderRoleSidebarMenu()}
+              </div>
 
               {/* Floating Profile Section inside drawer footer */}
               <div className="p-4 border-t border-slate-850 bg-slate-950/40 space-y-3 mt-auto">
@@ -5766,7 +6170,7 @@ export default function App() {
       */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Main Core Body Space */}
-        <main className={`flex-1 w-full px-4 sm:px-6 lg:px-8 py-8 ${isLoggedIn && (role === "admin" || role === "teacher") ? "pb-24 lg:pb-8" : ""}`}>
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-8">
           {/* Starting Dynamic Welcome Profile Dashboard panel (Purple & Dark Blue style with perfect contrast) */}
           {(() => {
             const profile = getCurrentUserProfile();
@@ -5790,9 +6194,17 @@ export default function App() {
                 <div className="absolute bottom-0 left-12 w-36 h-36 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
 
                 <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  {/* Name greeting (removed) */}
+                  {/* Guided Tutorial Trigger Banner Button */}
                   <div className="flex items-center gap-3">
-                    {/* Empty placeholder to maintain layout balance */}
+                    <button
+                      type="button"
+                      onClick={() => setIsTutorialOpen(true)}
+                      className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer border border-indigo-400/30 group"
+                      title="Launch Guided First-Time Tutorial"
+                    >
+                      <Compass className="w-4 h-4 text-amber-300 group-hover:rotate-90 transition-transform shrink-0" />
+                      <span>Take Guided Tour 💡</span>
+                    </button>
                   </div>
 
                   {/* Digital Clock & System Timezone Info */}
@@ -5851,182 +6263,311 @@ export default function App() {
                 return (
                   <>
                     {role === "admin" && (
-                      <AdminDashboard
-                        activeTab={adminActiveTab}
-                        setActiveTab={setAdminActiveTab}
-                        hideSidebarOnDesktop={true}
-                        batches={batches}
-                        teachers={teachers}
-                        students={students}
-                        announcements={announcements}
-                        admins={admins}
-                        supportMessages={supportMessages}
-                        computerDesks={computerDesks}
-                        schools={schools}
-                        onCreateSchool={(sch) =>
-                          setSchools((prev) => [sch, ...prev])
-                        }
-                        onDeleteSchool={(id) =>
-                          setSchools((prev) => prev.filter((s) => s.id !== id))
-                        }
-                        onUpdateSchool={(sch) =>
-                          setSchools((prev) =>
-                            prev.map((s) => (s.id === sch.id ? sch : s)),
-                          )
-                        }
-                        onSendSupportMessage={handleSendSupportMessage}
-                        onCreateBatch={handleCreateBatch}
-                        onDeleteBatch={handleDeleteBatch}
-                        onUpdateBatch={handleUpdateBatch}
-                        onCreateTeacher={handleCreateTeacher}
-                        onDeleteTeacher={handleDeleteTeacher}
-                        onCreateStudent={handleCreateStudent}
-                        onDeleteStudent={handleDeleteStudent}
-                        onAddAnnouncement={handleAddAnnouncement}
-                        onCreateAdmin={handleCreateAdmin}
-                        onDeleteAdmin={handleDeleteAdmin}
-                        onUpdateAdminStatus={handleUpdateAdminStatus}
-                        onUpdateAdminPassword={handleUpdateAdminPassword}
-                        onUpdateTeacherStatus={handleUpdateTeacherStatus}
-                        onUpdateTeacherPassword={handleUpdateTeacherPassword}
-                        onUpdateStudentStatus={handleUpdateStudentStatus}
-                        onUpdateStudentPassword={handleUpdateStudentPassword}
-                        onUpdateStudentDetails={handleUpdateStudentDetails}
-                        onUpdateAdminProfile={handleUpdateAdminProfile}
-                        loggedInAdminId={loggedInUserId || "admin_1"}
-                        onRegisterComputerDesk={handleRegisterComputerDesk}
-                        onDeleteComputerDesk={handleDeleteComputerDesk}
-                        onUpdateComputerDesk={handleUpdateComputerDesk}
-                        onUpdateStudentLock={handleUpdateStudentLock}
-                        tests={tests}
-                        onApproveTest={handleApproveTest}
-                        onDeleteTest={handleDeleteTest}
-                        feeManagers={feeManagers}
-                        onCreateFeeManager={handleCreateFeeManager}
-                        onDeleteFeeManager={handleDeleteFeeManager}
-                        onUpdateFeeManagerStatus={handleUpdateFeeManagerStatus}
-                        onUpdateFeeManagerPassword={
-                          handleUpdateFeeManagerPassword
-                        }
-                        admissionOfficers={admissionOfficers}
-                        onCreateAdmissionOfficer={handleCreateAdmissionOfficer}
-                        onDeleteAdmissionOfficer={handleDeleteAdmissionOfficer}
-                        onUpdateAdmissionOfficerStatus={
-                          handleUpdateAdmissionOfficerStatus
-                        }
-                        onUpdateAdmissionOfficerPassword={
-                          handleUpdateAdmissionOfficerPassword
-                        }
-                        verifiers={verifiers}
-                        onCreateVerifier={handleCreateVerifier}
-                        onDeleteVerifier={handleDeleteVerifier}
-                        onUpdateVerifierStatus={handleUpdateVerifierStatus}
-                        onUpdateVerifierPassword={handleUpdateVerifierPassword}
-                        leads={leads}
-                        onUpdateLead={handleUpdateLead}
-                        onDeleteLead={handleDeleteLead}
-                        onUpdateAnnouncement={handleUpdateAnnouncement}
-                        onDeleteAnnouncement={handleDeleteAnnouncement}
-                        onlineAnnouncements={onlineAnnouncements}
-                        onAddOnlineAnnouncement={handleAddOnlineAnnouncement}
-                        onUpdateOnlineAnnouncement={handleUpdateOnlineAnnouncement}
-                        onDeleteOnlineAnnouncement={handleDeleteOnlineAnnouncement}
-                        isNoticeboardAdminOnly={isNoticeboardAdminOnly}
-                        onToggleNoticeboardAdminOnly={setIsNoticeboardAdminOnly}
-                        publicBatches={publicBatches}
-                        onAddPublicBatch={(b) =>
-                          setPublicBatches((prev) => [...prev, b])
-                        }
-                        onUpdatePublicBatch={(id, fields) =>
-                          setPublicBatches((prev) =>
-                            prev.map((b) =>
-                              b.id === id ? { ...b, ...fields } : b,
-                            ),
-                          )
-                        }
-                        onDeletePublicBatch={(id) =>
-                          setPublicBatches((prev) =>
-                            prev.filter((b) => b.id !== id),
-                          )
-                        }
-                        isEmergencyShutdown={isEmergencyShutdown}
-                        setIsEmergencyShutdown={setIsEmergencyShutdown}
-                        shutdownReason={shutdownReason}
-                        setShutdownReason={setShutdownReason}
-                        authorizedDevices={authorizedDevices}
-                        setAuthorizedDevices={setAuthorizedDevices}
-                        currentDeviceKey={currentDeviceKey}
-                        securityAlerts={securityAlerts}
-                        onResolveAlert={handleResolveAlert}
-                        counsellingRequests={counsellingRequests}
-                        setCounsellingRequests={setCounsellingRequests}
-                        counsellingSlots={counsellingSlots}
-                        setCounsellingSlots={setCounsellingSlots}
-                        admissionRequests={admissionRequests}
-                        setAdmissionRequests={setAdmissionRequests}
-                        setStudents={setStudents}
-                        setBatches={setBatches}
-                      />
+                      adminActiveTab === "courses" ? (
+                        <CourseManager 
+                          courses={courses}
+                          teachers={teachers}
+                          onCreateCourse={(c) => {
+                            clearDeletedId("courses", c.id);
+                            setCourses(prev => [c, ...prev]);
+                          }}
+                          onUpdateCourse={(c) => setCourses(prev => prev.map(x => x.id === c.id ? c : x))}
+                          onDeleteCourse={(id) => {
+                            markIdAsDeleted("courses", id);
+                            setCourses(prev => prev.filter(x => x.id !== id));
+                            deleteDoc(doc(db, "courses", id)).catch(() => {});
+                          }}
+                          isAdmin={true}
+                          currentUserId={loggedInUserId || "admin_1"}
+                          currentUserName="Administrator"
+                          storeOrders={storeOrders}
+                          setStoreOrders={setStoreOrders}
+                          students={students}
+                          setStudents={setStudents}
+                        />
+                      ) : adminActiveTab === "exam-portal" ? (
+                        <AdminExamPortal
+                          currentAdminId={loggedInUserId || "admin_1"}
+                          currentAdminName="Super Administrator"
+                          examForms={examForms}
+                          setExamForms={setExamForms}
+                          examMarksheets={examMarksheets}
+                          setExamMarksheets={setExamMarksheets}
+                          onDeleteMarksheet={handleDeleteMarksheet}
+                          examSettings={examSettings}
+                          setExamSettings={setExamSettings}
+                          branchPINs={branchPINs}
+                          setBranchPINs={setBranchPINs}
+                          studyHubCenters={studyHubCenters}
+                        />
+                      ) : (adminActiveTab === "inventory" || adminActiveTab === "orders") ? (
+                        <InventoryManager
+                          storeItems={storeItems}
+                          setStoreItems={setStoreItems}
+                          storeOrders={storeOrders}
+                          setStoreOrders={setStoreOrders}
+                          students={students}
+                          courses={courses}
+                          initialView={adminActiveTab === "orders" ? "delivery-orders" : "inventory"}
+                        />
+                      ) : adminActiveTab === "store" || adminActiveTab === "store-helpdesk" ? (
+                        <StoreView 
+                          courses={courses}
+                          storeItems={storeItems}
+                          storeOrders={storeOrders}
+                          studyHubCenters={studyHubCenters}
+                          currentUser={{ id: "admin_1", name: "Administrator", email: "admin@coachinghub.edu", role: "admin" }}
+                          onPlaceOrder={(ord) => setStoreOrders(prev => [ord, ...prev])}
+                          onAskDoubt={(cId, msg) => setCourses(prev => prev.map(c => c.id === cId ? { ...c, doubts: [...c.doubts, { id: "d_" + Date.now(), studentId: "admin", studentName: "Administrator", message: msg, timestamp: new Date().toLocaleString() }] } : c))}
+                          supportMessages={supportMessages}
+                          setSupportMessages={setSupportMessages}
+                          setStoreOrders={setStoreOrders}
+                          initialTab={adminActiveTab === "store-helpdesk" ? "helpdesk" : "books"}
+                          onNavigateToInventory={() => setAdminActiveTab("inventory")}
+                        />
+                      ) : (
+                        <AdminDashboard
+                          activeTab={adminActiveTab}
+                          setActiveTab={setAdminActiveTab}
+                          hideSidebarOnDesktop={true}
+                          studyHubCenters={studyHubCenters}
+                          setStudyHubCenters={setStudyHubCenters}
+                          storeOrders={storeOrders}
+                          setStoreOrders={setStoreOrders}
+                          batches={batches}
+                          teachers={teachers}
+                          students={students}
+                          announcements={announcements}
+                          admins={admins}
+                          supportMessages={supportMessages}
+                          setSupportMessages={setSupportMessages}
+                          computerDesks={computerDesks}
+                          schools={schools}
+                          onCreateSchool={(sch) => {
+                            clearDeletedId("schools", sch.id);
+                            setSchools((prev) => [sch, ...prev]);
+                          }}
+                          onDeleteSchool={(id) => {
+                            markIdAsDeleted("schools", id);
+                            setSchools((prev) => prev.filter((s) => s.id !== id));
+                            deleteDoc(doc(db, "schools", id)).catch(() => {});
+                          }}
+                          onUpdateSchool={(sch) =>
+                            setSchools((prev) =>
+                              prev.map((s) => (s.id === sch.id ? sch : s)),
+                            )
+                          }
+                          onSendSupportMessage={handleSendSupportMessage}
+                          onCreateBatch={handleCreateBatch}
+                          onDeleteBatch={handleDeleteBatch}
+                          onUpdateBatch={handleUpdateBatch}
+                          onCreateTeacher={handleCreateTeacher}
+                          onDeleteTeacher={handleDeleteTeacher}
+                          onCreateStudent={handleCreateStudent}
+                          onDeleteStudent={handleDeleteStudent}
+                          onAddAnnouncement={handleAddAnnouncement}
+                          onCreateAdmin={handleCreateAdmin}
+                          onDeleteAdmin={handleDeleteAdmin}
+                          onUpdateAdminStatus={handleUpdateAdminStatus}
+                          onUpdateAdminPassword={handleUpdateAdminPassword}
+                          onUpdateTeacherStatus={handleUpdateTeacherStatus}
+                          onUpdateTeacherPassword={handleUpdateTeacherPassword}
+                          onUpdateStudentStatus={handleUpdateStudentStatus}
+                          onUpdateStudentPassword={handleUpdateStudentPassword}
+                          onUpdateStudentDetails={handleUpdateStudentDetails}
+                          onUpdateAdminProfile={handleUpdateAdminProfile}
+                          loggedInAdminId={loggedInUserId || "admin_1"}
+                          onRegisterComputerDesk={handleRegisterComputerDesk}
+                          onDeleteComputerDesk={handleDeleteComputerDesk}
+                          onUpdateComputerDesk={handleUpdateComputerDesk}
+                          onUpdateStudentLock={handleUpdateStudentLock}
+                          onUnenrollStudent={handleUnenrollStudent}
+                          tests={tests}
+                          onApproveTest={handleApproveTest}
+                          onDeleteTest={handleDeleteTest}
+                          feeManagers={feeManagers}
+                          onCreateFeeManager={handleCreateFeeManager}
+                          onDeleteFeeManager={handleDeleteFeeManager}
+                          onUpdateFeeManagerStatus={handleUpdateFeeManagerStatus}
+                          onUpdateFeeManagerPassword={
+                            handleUpdateFeeManagerPassword
+                          }
+                          admissionOfficers={admissionOfficers}
+                          onCreateAdmissionOfficer={handleCreateAdmissionOfficer}
+                          onDeleteAdmissionOfficer={handleDeleteAdmissionOfficer}
+                          onUpdateAdmissionOfficerStatus={
+                            handleUpdateAdmissionOfficerStatus
+                          }
+                          onUpdateAdmissionOfficerPassword={
+                            handleUpdateAdmissionOfficerPassword
+                          }
+                          verifiers={verifiers}
+                          onCreateVerifier={handleCreateVerifier}
+                          onDeleteVerifier={handleDeleteVerifier}
+                          onUpdateVerifierStatus={handleUpdateVerifierStatus}
+                          onUpdateVerifierPassword={handleUpdateVerifierPassword}
+                          leads={leads}
+                          onUpdateLead={handleUpdateLead}
+                          onDeleteLead={handleDeleteLead}
+                          onUpdateAnnouncement={handleUpdateAnnouncement}
+                          onDeleteAnnouncement={handleDeleteAnnouncement}
+                          onlineAnnouncements={onlineAnnouncements}
+                          onAddOnlineAnnouncement={handleAddOnlineAnnouncement}
+                          onUpdateOnlineAnnouncement={handleUpdateOnlineAnnouncement}
+                          onDeleteOnlineAnnouncement={handleDeleteOnlineAnnouncement}
+                          isNoticeboardAdminOnly={isNoticeboardAdminOnly}
+                          onToggleNoticeboardAdminOnly={setIsNoticeboardAdminOnly}
+                          publicBatches={publicBatches}
+                          onAddPublicBatch={(b) =>
+                            setPublicBatches((prev) => [...prev, b])
+                          }
+                          onUpdatePublicBatch={(id, fields) =>
+                            setPublicBatches((prev) =>
+                              prev.map((b) =>
+                                b.id === id ? { ...b, ...fields } : b,
+                              ),
+                            )
+                          }
+                          onDeletePublicBatch={(id) =>
+                            setPublicBatches((prev) =>
+                              prev.filter((b) => b.id !== id),
+                            )
+                          }
+                          isEmergencyShutdown={isEmergencyShutdown}
+                          setIsEmergencyShutdown={setIsEmergencyShutdown}
+                          shutdownReason={shutdownReason}
+                          setShutdownReason={setShutdownReason}
+                          authorizedDevices={authorizedDevices}
+                          setAuthorizedDevices={setAuthorizedDevices}
+                          currentDeviceKey={currentDeviceKey}
+                          securityAlerts={securityAlerts}
+                          onResolveAlert={handleResolveAlert}
+                          counsellingRequests={counsellingRequests}
+                          setCounsellingRequests={setCounsellingRequests}
+                          counsellingSlots={counsellingSlots}
+                          setCounsellingSlots={setCounsellingSlots}
+                          admissionRequests={admissionRequests}
+                          setAdmissionRequests={setAdmissionRequests}
+                          setStudents={setStudents}
+                          setBatches={setBatches}
+                        />
+                      )
                     )}
 
                     {role === "teacher" && (
-                      <TeacherDashboard
-                        activeTab={teacherActiveTab}
-                        setActiveTab={setTeacherActiveTab}
-                        hideSidebarOnDesktop={true}
-                        batches={batches}
-                        teachers={teachers}
-                        students={students}
-                        lessons={lessons}
-                        tests={tests}
-                        announcements={announcements}
-                        fees={fees}
-                        schools={schools}
-                        supportMessages={supportMessages}
-                        computerDesks={computerDesks}
-                        testSubmissions={testSubmissions}
-                        subjects={subjects}
-                        onAddSubject={handleAddSubject}
-                        onAddTestSubmission={handleAddTestSubmission}
-                        onSendSupportMessage={handleSendSupportMessage}
-                        onAddLesson={handleAddLesson}
-                        onUpdateLessonStatus={handleUpdateLessonStatus}
-                        onDeleteLesson={handleDeleteLesson}
-                        onAddTest={handleAddTest}
-                        onUpdateTest={handleUpdateTest}
-                        onAddAnnouncement={handleAddAnnouncement}
-                        onUpdateAttendance={handleUpdateAttendance}
-                        loggedInTeacherId={
-                          loggedInUserId !== "admin"
-                            ? loggedInUserId
-                            : undefined
-                        }
-                        onUpdateTeacherProfile={handleUpdateTeacherProfile}
-                        onAddFeeInvoice={handleAddFeeInvoice}
-                        onUpdateFeeStatus={handleUpdateFeeStatus}
-                        onDeleteFeeInvoice={handleDeleteFeeInvoice}
-                        onVerifyStudentAndAllotDesk={
-                          handleVerifyStudentAndAllotDesk
-                        }
-                        isNoticeboardAdminOnly={isNoticeboardAdminOnly}
-                        attendanceRecords={attendanceRecords}
-                        onMarkAttendance={handleMarkAttendance}
-                        onBatchMarkAttendance={handleBatchMarkAttendance}
-                        onRegisterComputerDesk={handleRegisterComputerDesk}
-                        onDeleteComputerDesk={handleDeleteComputerDesk}
-                        onUpdateComputerDesk={handleUpdateComputerDesk}
-                        onUpdateStudentLock={handleUpdateStudentLock}
-                        onUpdateStudentFormDetails={
-                          handleUpdateStudentFormDetails
-                        }
-                        onCreateStudent={handleCreateStudent}
-                        counsellingRequests={counsellingRequests}
-                        setCounsellingRequests={setCounsellingRequests}
-                        admissionRequests={admissionRequests}
-                        setAdmissionRequests={setAdmissionRequests}
-                        setStudents={setStudents}
-                        setBatches={setBatches}
-                      />
+                      teacherActiveTab === "courses" ? (
+                        <CourseManager 
+                          courses={courses}
+                          teachers={teachers}
+                          onCreateCourse={(c) => {
+                            clearDeletedId("courses", c.id);
+                            setCourses(prev => [c, ...prev]);
+                          }}
+                          onUpdateCourse={(c) => setCourses(prev => prev.map(x => x.id === c.id ? c : x))}
+                          onDeleteCourse={(id) => {
+                            markIdAsDeleted("courses", id);
+                            setCourses(prev => prev.filter(x => x.id !== id));
+                            deleteDoc(doc(db, "courses", id)).catch(() => {});
+                          }}
+                          isAdmin={true}
+                          currentUserId={loggedInUserId}
+                          currentUserName={teachers.find(t => t.id === loggedInUserId)?.name || "Faculty Mentor"}
+                          storeOrders={storeOrders}
+                          setStoreOrders={setStoreOrders}
+                          students={students}
+                          setStudents={setStudents}
+                        />
+                      ) : teacherActiveTab === "exam-portal" ? (
+                        <TeacherExamPortal
+                          currentTeacherId={loggedInUserId}
+                          currentTeacherName={teachers.find(t => t.id === loggedInUserId)?.name || "Faculty Mentor"}
+                          examForms={examForms}
+                          setExamForms={setExamForms}
+                          examSubjects={examSubjects}
+                          setExamSubjects={setExamSubjects}
+                          examMarksheets={examMarksheets}
+                          setExamMarksheets={setExamMarksheets}
+                          onDeleteMarksheet={handleDeleteMarksheet}
+                          branchPINs={branchPINs}
+                          examSettings={examSettings}
+                          students={students}
+                          studyHubCenters={studyHubCenters}
+                        />
+                      ) : teacherActiveTab === "store" ? (
+                        <StoreView 
+                          courses={courses}
+                          storeItems={storeItems}
+                          storeOrders={storeOrders}
+                          studyHubCenters={studyHubCenters}
+                          currentUser={{ id: loggedInUserId || "t1", name: teachers.find(t => t.id === loggedInUserId)?.name || "Faculty Mentor", email: teachers.find(t => t.id === loggedInUserId)?.email || "teacher@studyhub.edu", role: "teacher" }}
+                          onPlaceOrder={(ord) => setStoreOrders(prev => [ord, ...prev])}
+                          onAskDoubt={(cId, msg) => setCourses(prev => prev.map(c => c.id === cId ? { ...c, doubts: [...c.doubts, { id: "d_" + Date.now(), studentId: loggedInUserId || "t1", studentName: teachers.find(t => t.id === loggedInUserId)?.name || "Faculty Mentor", message: msg, timestamp: new Date().toLocaleString() }] } : c))}
+                          supportMessages={supportMessages}
+                          setSupportMessages={setSupportMessages}
+                          setStoreOrders={setStoreOrders}
+                          initialTab="courses"
+                        />
+                      ) : (
+                        <TeacherDashboard
+                          activeTab={teacherActiveTab}
+                          setActiveTab={setTeacherActiveTab}
+                          hideSidebarOnDesktop={true}
+                          batches={batches}
+                          teachers={teachers}
+                          students={students}
+                          lessons={lessons}
+                          tests={tests}
+                          announcements={announcements}
+                          fees={fees}
+                          schools={schools}
+                          supportMessages={supportMessages}
+                          computerDesks={computerDesks}
+                          testSubmissions={testSubmissions}
+                          subjects={subjects}
+                          onAddSubject={handleAddSubject}
+                          onAddTestSubmission={handleAddTestSubmission}
+                          onSendSupportMessage={handleSendSupportMessage}
+                          onAddLesson={handleAddLesson}
+                          onUpdateLessonStatus={handleUpdateLessonStatus}
+                          onDeleteLesson={handleDeleteLesson}
+                          onAddTest={handleAddTest}
+                          onUpdateTest={handleUpdateTest}
+                          onAddAnnouncement={handleAddAnnouncement}
+                          onUpdateAttendance={handleUpdateAttendance}
+                          loggedInTeacherId={
+                            loggedInUserId !== "admin"
+                              ? loggedInUserId
+                              : undefined
+                          }
+                          onUpdateTeacherProfile={handleUpdateTeacherProfile}
+                          onAddFeeInvoice={handleAddFeeInvoice}
+                          onUpdateFeeStatus={handleUpdateFeeStatus}
+                          onDeleteFeeInvoice={handleDeleteFeeInvoice}
+                          onVerifyStudentAndAllotDesk={
+                            handleVerifyStudentAndAllotDesk
+                          }
+                          isNoticeboardAdminOnly={isNoticeboardAdminOnly}
+                          attendanceRecords={attendanceRecords}
+                          onMarkAttendance={handleMarkAttendance}
+                          onBatchMarkAttendance={handleBatchMarkAttendance}
+                          onRegisterComputerDesk={handleRegisterComputerDesk}
+                          onDeleteComputerDesk={handleDeleteComputerDesk}
+                          onUpdateComputerDesk={handleUpdateComputerDesk}
+                          onUpdateStudentLock={handleUpdateStudentLock}
+                          onUpdateStudentFormDetails={
+                            handleUpdateStudentFormDetails
+                          }
+                          onCreateStudent={handleCreateStudent}
+                          counsellingRequests={counsellingRequests}
+                          setCounsellingRequests={setCounsellingRequests}
+                          admissionRequests={admissionRequests}
+                          setAdmissionRequests={setAdmissionRequests}
+                          setStudents={setStudents}
+                          setBatches={setBatches}
+                          courses={courses}
+                          setCourses={setCourses}
+                        />
+                      )
                     )}
 
                     {role === "student" &&
@@ -6065,6 +6606,56 @@ export default function App() {
                             </div>
                           );
                         }
+
+                        if (studentActiveTab === "courses") {
+                          return (
+                            <CourseManager 
+                              courses={courses}
+                              teachers={teachers}
+                              onCreateCourse={() => {}}
+                              onUpdateCourse={(c) => setCourses(prev => prev.map(x => x.id === c.id ? c : x))}
+                              onDeleteCourse={() => {}}
+                              isAdmin={false}
+                              currentUserId={loggedInUserId}
+                              currentUserEmail={currentStud?.email}
+                              currentUserName={currentStud?.name || "Student"}
+                              currentUserStudent={currentStud}
+                              storeOrders={storeOrders}
+                            />
+                          );
+                        }
+
+                        if (studentActiveTab === "store") {
+                          return (
+                            <StoreView 
+                              courses={courses}
+                              storeItems={storeItems}
+                              storeOrders={storeOrders}
+                              studyHubCenters={studyHubCenters}
+                              currentUser={{ id: loggedInUserId || "s1", name: currentStud?.name || "Student", email: currentStud?.email || "student@studyhub.edu", mobileNumber: currentStud?.mobileNumber || "9876543210", role: "student" }}
+                              onPlaceOrder={(ord) => setStoreOrders(prev => [ord, ...prev])}
+                              onAskDoubt={(cId, msg) => setCourses(prev => prev.map(c => c.id === cId ? { ...c, doubts: [...c.doubts, { id: "d_" + Date.now(), studentId: loggedInUserId || "s1", studentName: currentStud?.name || "Student", message: msg, timestamp: new Date().toLocaleString() }] } : c))}
+                              supportMessages={supportMessages}
+                              setSupportMessages={setSupportMessages}
+                              setStoreOrders={setStoreOrders}
+                              initialTab="courses"
+                            />
+                          );
+                        }
+
+                        if (studentActiveTab === "exam-portal") {
+                          return (
+                            <StudentExamPortal
+                              currentStudentId={loggedInUserId}
+                              currentStudentName={currentStud?.name}
+                              examForms={examForms}
+                              examMarksheets={examMarksheets}
+                              examSettings={examSettings}
+                              students={students}
+                            />
+                          );
+                        }
+
                         return (
                           <StudentDashboard
                             activeTab={studentActiveTab}
@@ -6512,66 +7103,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Mobile Bottom Navigation Bar (Visible only on mobile for Teachers & Admins) */}
-        {isLoggedIn && (role === "admin" || role === "teacher") && (
-          <div id="mobile-bottom-nav" className="no-print lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 py-2.5 px-6 flex justify-around items-center z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
-            {/* Home/Public Website button */}
-            <button
-              onClick={handleLogout}
-              className="flex flex-col items-center justify-center space-y-1 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors duration-150 cursor-pointer"
-              title="Go to main website page"
-            >
-              <Home className="w-5 h-5" />
-              <span className="text-[9px] font-black uppercase tracking-wider">Website</span>
-            </button>
 
-            {/* Student Search trigger button */}
-            <button
-              onClick={() => {
-                setIsMobileSearchOpen(true);
-                setMobileSearchQuery("");
-                setExpandedStudentId(null);
-              }}
-              className="flex flex-col items-center justify-center space-y-1 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors duration-150 cursor-pointer relative"
-              title="Search and manage students"
-            >
-              <div className="p-2.5 -mt-6 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-600/30 border-4 border-white dark:border-slate-900 hover:scale-105 active:scale-95 transition-all">
-                <Search className="w-5 h-5" />
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mt-1">Search Students</span>
-            </button>
-
-            {/* Profile trigger button */}
-            <button
-              onClick={() => {
-                const profile = getCurrentUserProfile();
-                setEditProfileName(profile.nameVal || "");
-                setEditProfileAvatar(profile.avatarUrl || "");
-                let currentMail = "";
-                if (role === "admin")
-                  currentMail =
-                    admins.find((a) => a.id === loggedInUserId)?.email ||
-                    "admin@coachinghub.edu";
-                else if (role === "teacher")
-                  currentMail =
-                    teachers.find((t) => t.id === loggedInUserId)?.email ||
-                    "";
-                setEditProfileEmail(currentMail);
-                setProfileModalMode("view");
-              }}
-              className="flex flex-col items-center justify-center space-y-1 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors duration-150 cursor-pointer"
-              title="View my profile"
-            >
-              <div className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center text-[9px] font-black uppercase border border-slate-200 dark:border-slate-700">
-                {(() => {
-                  const profile = getCurrentUserProfile();
-                  return profile.nameVal ? profile.nameVal.substring(0, 2).toUpperCase() : "ME";
-                })()}
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-wider">Profile</span>
-            </button>
-          </div>
-        )}
 
         {/* Mobile Student Search and Management Modal */}
         {isMobileSearchOpen && (
@@ -6710,8 +7242,27 @@ export default function App() {
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2 shrink-0">
-                            {/* Badges */}
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {/* Verification Badge */}
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase font-mono flex items-center gap-1 ${
+                              student.isVerified || student.verifiedAt
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300/60"
+                                : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-300/60"
+                            }`}>
+                              {student.isVerified || student.verifiedAt ? (
+                                <>
+                                  <CheckCircle className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span>Verified</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                                  <span>Pending Verification</span>
+                                </>
+                              )}
+                            </span>
+
+                            {/* Status Badge */}
                             <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase font-mono ${
                               student.status === "Active"
                                 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400"
@@ -6888,6 +7439,15 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* First-Time User Guided Tutorial Overlay */}
+        <OnboardingTutorial
+          role={role === "verifier" ? "admin" : role}
+          userName={loggedInUserName || getCurrentUserProfile().nameVal || "User"}
+          userId={loggedInUserId}
+          isOpen={isTutorialOpen}
+          onClose={() => setIsTutorialOpen(false)}
+        />
       </div>
     </div>
   );
